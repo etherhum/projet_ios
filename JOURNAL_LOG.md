@@ -38,3 +38,10 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Échanges : le BLE seul est écarté (débit insuffisant pour l'audio) ; Multipeer est retenu, sans BLE complémentaire.
 - Livrable : `docs/M2-01-transport.md` (tableau comparatif + justification).
 - Relecture : contenu relu par le développeur humain avant PR.
+## 2026-11-20 — Issue #10 (M2-02) : prototype de faisabilité du transport
+
+- Demande reformulée : « Créer le projet Xcode de l'app et un prototype Multipeer Connectivity permettant à deux iPhones réels, sans Wi-Fi commun, de se découvrir et d'échanger un message de test. Compiler et tester en local, et attendre la validation humaine sur appareils avant tout push. »
+- Livrable : projet `Proxima.xcodeproj` (SwiftUI, iOS 17, aucune dépendance externe), `TransportPrototype` (pseudonyme aléatoire par lancement, chiffrement Multipeer `.required`, message borné à 256 octets), écran de test, 2 tests unitaires.
+- Vérification locale : `xcodebuild build-for-testing` OK. Simulateur indisponible sur le Mac (runtime iOS non installé) : tests unitaires à lancer depuis Xcode sur iPhone.
+- Bug trouvé lors de l'essai : `NSBonjourServices` absent de l'Info.plist généré (clé non supportée en build setting), découverte bloquée silencieusement par iOS. Corrigé via `Proxima-Info.plist`.
+- Résultat sur 2 appareils réels (iPhone 17 Pro Max + iPhone 16 Pro Max) : découverte, connexion et message de test reçus — validé par le développeur le 2026-11-20.
