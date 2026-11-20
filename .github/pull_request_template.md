@@ -15,7 +15,7 @@ Refs #<!-- numéro de l’issue -->
 - [ ] Relu : j’ai relu le diff avant de demander une revue.
 - [ ] Testé : j’ai vérifié le comportement modifié et renseigné les résultats ci-dessus.
 - [ ] Sans secret : le diff ne contient aucun mot de passe, token, clé privée ou autre secret.
-- [ ] Prompt journalisé : les prompts utilisés sont consignés dans `PROMPT_LOG.md` ; si aucun outil d’IA n’a été utilisé, je l’ai indiqué ci-dessus.
+- [ ] Prompt journalisé : chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formulation développée et fidèle à son intention ; si aucun outil d’IA n’a été utilisé, je l’ai indiqué ci-dessus.
 
 ## Règles de fusion vers `main`
 
