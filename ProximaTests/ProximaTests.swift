@@ -50,17 +50,75 @@ final class FakeDiscovery: PeerDiscovering {
 }
 
 @MainActor
+final class FakeMicrophone: MicrophonePermission {
+    var status: MicrophoneAuthorization
+    let answer: Bool
+    var requestCount = 0
+    init(status: MicrophoneAuthorization = .undetermined, answer: Bool = true) {
+        self.status = status; self.answer = answer
+    }
+    func request() async -> Bool {
+        requestCount += 1
+        status = answer ? .granted : .denied
+        return answer
+    }
+}
+
+@MainActor
 final class AppStateTests: XCTestCase {
-    func testEventsUpdateListAndMockCall() {
+    private func make(_ micOrNil: FakeMicrophone? = nil) -> (AppState, FakeDiscovery, FakeMicrophone) {
+        let mic = micOrNil ?? FakeMicrophone()
         let fake = FakeDiscovery()
-        let state = AppState(discovery: fake)
-        state.startDiscovery()
+        return (AppState(discovery: fake, microphone: mic), fake, mic)
+    }
+
+    func testNoPermissionRequestedAtLaunch() {
+        let (state, fake, mic) = make()
+        XCTAssertFalse(fake.started)
+        XCTAssertFalse(state.searchRequested)
+        XCTAssertEqual(mic.requestCount, 0)
+        state.resumeDiscoveryIfRequested() // passage au premier plan sans action utilisateur
+        XCTAssertFalse(fake.started)
+    }
+
+    func testDiscoveryStartsAfterUserAction() {
+        let (state, fake, _) = make()
+        state.userRequestedSearch()
         XCTAssertTrue(fake.started)
+        state.stopDiscovery()
+        state.resumeDiscoveryIfRequested()
+        XCTAssertTrue(fake.started)
+    }
+
+    func testMicrophoneDeniedOpensNoCall() async {
+        let (state, _, mic) = make(FakeMicrophone(answer: false))
+        await state.requestCall(with: NearbyPeer(pseudonym: .random()))
+        XCTAssertNil(state.activeCall)
+        XCTAssertTrue(state.showMicrophoneDeniedAlert)
+        XCTAssertEqual(mic.requestCount, 1)
+    }
+
+    func testMicrophoneAlreadyDeniedIsNotAskedAgain() async {
+        let (state, _, mic) = make(FakeMicrophone(status: .denied))
+        await state.requestCall(with: NearbyPeer(pseudonym: .random()))
+        XCTAssertNil(state.activeCall)
+        XCTAssertTrue(state.showMicrophoneDeniedAlert)
+        XCTAssertEqual(mic.requestCount, 0)
+    }
+
+    func testMicrophoneGrantedOpensCall() async {
+        let (state, fake, mic) = make()
+        state.userRequestedSearch()
         let p = NearbyPeer(pseudonym: .random())
         fake.onEvent?(.found(p))
         XCTAssertEqual(state.nearby.peers, [p])
-        state.startMockCall(with: p)
+        await state.requestCall(with: p)
         XCTAssertEqual(state.activeCall, p)
+        XCTAssertFalse(state.showMicrophoneDeniedAlert)
+        XCTAssertEqual(mic.requestCount, 1)
+        state.hangUp()
+        await state.requestCall(with: p) // déjà accordé : pas de nouvelle demande
+        XCTAssertEqual(mic.requestCount, 1)
         state.hangUp()
         XCTAssertNil(state.activeCall)
         fake.onEvent?(.lost(id: p.id))

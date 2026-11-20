@@ -3,15 +3,24 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         NearbyListView()
             .fullScreenCover(item: $appState.activeCall) { peer in
                 CallView(peer: peer, onHangUp: appState.hangUp)
             }
-            .onChange(of: scenePhase, initial: true) { _, phase in
-                // Découverte uniquement au premier plan (M2-03 : rien n'est annoncé en arrière-plan).
-                if phase == .active { appState.startDiscovery() }
+            .alert("Micro désactivé", isPresented: $appState.showMicrophoneDeniedAlert) {
+                Button("Ouvrir les Réglages") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Proxima a besoin du micro pour passer un appel. Autorisez-le dans Réglages > Proxima > Micro. Le son n'est jamais enregistré.")
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Découverte uniquement au premier plan (M2-03), et seulement après le tap de l'utilisateur (M3-02).
+                if phase == .active { appState.resumeDiscoveryIfRequested() }
                 else if phase == .background { appState.stopDiscovery() }
             }
     }

@@ -244,6 +244,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Proxima;
 				INFOPLIST_FILE = "Proxima-Info.plist";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Proxima utilise le micro uniquement pendant un appel que vous lancez ou acceptez. Le son est chiffré de bout en bout et n'est jamais enregistré.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Proxima utilise le réseau local et le Wi-Fi pair-à-pair pour trouver les personnes proches et transmettre les appels chiffrés, sans passer par Internet.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -267,6 +268,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Proxima;
 				INFOPLIST_FILE = "Proxima-Info.plist";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Proxima utilise le micro uniquement pendant un appel que vous lancez ou acceptez. Le son est chiffré de bout en bout et n'est jamais enregistré.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Proxima utilise le réseau local et le Wi-Fi pair-à-pair pour trouver les personnes proches et transmettre les appels chiffrés, sans passer par Internet.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
