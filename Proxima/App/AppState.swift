@@ -51,6 +51,7 @@ final class AppState: ObservableObject {
             case .found(let peer):
                 // Défense en profondeur : jamais soi-même dans la liste.
                 guard peer.id != self.discovery.localPseudonym.value else { return }
+                guard !self.discovery.isBlocked(peerID: peer.id) else { return } // bloqué (M3-09) : masqué
                 self.nearby.add(peer)
             case .lost(let id): self.nearby.remove(id: id)
             }
@@ -130,6 +131,12 @@ final class AppState: ObservableObject {
     }
 
     func declineIncomingCall() { call.decline() }
+
+    /// « Bloquer pour la session » (M3-09) : invitations refusées silencieusement, pair retiré et masqué de la liste.
+    func blockPeer(_ peer: NearbyPeer) {
+        discovery.block(peerID: peer.id)
+        nearby.remove(id: peer.id)
+    }
     func confirmCode() { call.confirmCode() }
     func rejectCode() { call.rejectCode() }
     /// Variante QR (M2-06) : contenu affiché par l'appelant / scanné par l'appelé.

@@ -61,6 +61,11 @@ struct NearbyListView: View {
                         }
                     }
                     .foregroundStyle(.primary)
+                    .swipeActions {
+                        Button("Bloquer pour la session", systemImage: "hand.raised", role: .destructive) {
+                            appState.blockPeer(peer)
+                        }
+                    }
                 }
             } header: {
                 Text("À proximité")
