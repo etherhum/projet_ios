@@ -76,6 +76,21 @@ final class FakeMicrophone: MicrophonePermission {
 }
 
 @MainActor
+final class FakeMicrophone: MicrophonePermission {
+    var status: MicrophoneAuthorization
+    let answer: Bool
+    var requestCount = 0
+    init(status: MicrophoneAuthorization = .undetermined, answer: Bool = true) {
+        self.status = status; self.answer = answer
+    }
+    func request() async -> Bool {
+        requestCount += 1
+        status = answer ? .granted : .denied
+        return answer
+    }
+}
+
+@MainActor
 final class AppStateTests: XCTestCase {
     private func make(_ micOrNil: FakeMicrophone? = nil) -> (AppState, FakeDiscovery, FakeMicrophone) {
         let mic = micOrNil ?? FakeMicrophone()
