@@ -23,3 +23,10 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Tentative d’approbation : `gh pr review 49 --approve` refusé par GitHub avec « Review Can not approve your own pull request ». Le compte disponible, `etherhum`, est l’auteur de la PR.
 - Tentative de fusion : `PUT /repos/etherhum/projet_ios/pulls/49/merge` sur le commit `29ed85c`, refusé avec HTTP `405` : « At least 1 approving review is required by reviewers with write access. »
 - Blocage : un autre membre avec droit d’écriture doit approuver la PR. La fusion n’a pas eu lieu et l’issue reste ouverte ; `Closes #1` assurera sa clôture lors de la fusion.
+
+## 2026-11-20 — Issue #10 (M2-02) : prototype de faisabilité du transport
+
+- Demande reformulée : « Créer le projet Xcode de l'app et un prototype Multipeer Connectivity permettant à deux iPhones réels, sans Wi-Fi commun, de se découvrir et d'échanger un message de test. Compiler et tester en local, et attendre la validation humaine sur appareils avant tout push. »
+- Livrable : projet `Proxima.xcodeproj` (SwiftUI, iOS 17, aucune dépendance externe), `TransportPrototype` (pseudonyme aléatoire par lancement, chiffrement Multipeer `.required`, message borné à 256 octets), écran de test, 2 tests unitaires.
+- Vérification locale : `xcodebuild build-for-testing` OK. Simulateur indisponible sur le Mac (runtime iOS non installé) : tests unitaires à lancer depuis Xcode sur iPhone.
+- Résultat sur 2 appareils réels : _à compléter par le développeur après l'essai._
