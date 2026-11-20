@@ -31,6 +31,8 @@ final class AppState: ObservableObject {
     private var discovering = false
     /// Session d'appel unique (une seule à la fois).
     let call: CallSession
+    /// Chaîne audio chiffrée (M3-07), démarrée/arrêtée uniquement par les transitions de `callPhase`.
+    let audio: AudioPipeline
 
     init(discovery: PeerDiscovering, microphone: MicrophonePermission,
          rotationTimer: RotationTimer? = nil,
@@ -38,7 +40,8 @@ final class AppState: ObservableObject {
          callTransport: CallTransport? = nil,
          callScheduler: DeadlineScheduler? = nil,
          fakeFingerprint: Bool = AppState.fakeFingerprintRequested,
-         janitor: SecretsJanitor? = nil) {
+         janitor: SecretsJanitor? = nil,
+         audioIO: AudioIO? = nil) {
         self.discovery = discovery
         self.janitor = janitor ?? SecretsJanitor()
         self.microphone = microphone
@@ -47,8 +50,12 @@ final class AppState: ObservableObject {
         self.myAlias = discovery.localPseudonym.alias
         self.call = CallSession(transport: callTransport ?? (discovery as? CallTransport) ?? NoCallTransport(),
                                 scheduler: callScheduler, fakeFingerprint: fakeFingerprint)
+        audio = AudioPipeline(io: audioIO ?? EngineAudioIO())
         call.onPhaseChange = { [weak self] phase in self?.callPhaseChanged(phase) }
         call.onConfirmationChange = { [weak self] confirmed in self?.codeConfirmedLocally = confirmed }
+        audio.sendFrame = { [weak call] frame in call?.sendAudio(frame) ?? false }
+        call.onAudioPacket = { [weak audio] packet in audio?.receive(packet) }
+        call.onPacketRejected = { [weak audio] in audio?.noteRejected() }
         discovery.onEvent = { [weak self] event in
             guard let self else { return }
             switch event {
@@ -130,7 +137,6 @@ final class AppState: ObservableObject {
 
     /// Lancement d'un appel : le micro est demandé ici (premier usage), jamais au lancement.
     /// Envoie ensuite la demande (COMMIT) ; l'appel ne démarre que si l'autre accepte.
-    // TODO M3-07 : audio chiffré une fois les codes confirmés.
     func requestCall(with peer: NearbyPeer) async {
         guard !isInCall else { return } // double tap / appel déjà en cours : un seul appel
         guard await microphoneGranted(), !isInCall else { return }
@@ -184,9 +190,12 @@ final class AppState: ObservableObject {
         let wasBusy = callPhase.isBusy
         callPhase = phase
         if let event = AppLog.Event.forCallPhase(phase) { AppLog.log(event) } // catégorie seulement, jamais le code ni le pair
-        // M3-11 : la session est enregistrée auprès du janitor dès le début d'un appel (paire éphémère puis clés) ;
-        // toute fin d'appel (local, distant, refus, échec, perte du pair) passe ici → `callDidEnd()`.
-        if !wasBusy, phase.isBusy { janitor.register(call) }
+        // M3-11 : la session et la chaîne audio sont enregistrées auprès du janitor dès le début d'un appel ;
+        // toute fin d'appel (local, distant, refus, échec, perte du pair) passe ici → `callDidEnd()`
+        // (clés détruites, audio arrêté, tampons PCM effacés).
+        if !wasBusy, phase.isBusy { janitor.register(call); janitor.register(audio) }
+        // M3-07 : seul point d'entrée de l'audio ; démarrage seulement si `canExchangeAudio` (SAS_OK des deux côtés).
+        if call.canExchangeAudio { audio.update(for: phase) } else { audio.stop() }
         if wasBusy, !phase.isBusy { janitor.callDidEnd(); AppLog.log(.secretsWiped) }
         if let id = call.peerID { callPeer = NearbyPeer(pseudonym: Pseudonym(value: id)) }
         if phase == .idle { callPeer = nil }

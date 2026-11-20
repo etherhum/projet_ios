@@ -101,6 +101,11 @@ final class NearbyService: NSObject, PeerDiscovering, CallTransport {
         try? session.send(data, toPeers: [peer], with: .reliable) // échec : la session détectera la déconnexion
     }
 
+    func sendUnreliable(_ data: Data) {
+        guard let session, let peer = callPeer, session.connectedPeers.contains(peer) else { return }
+        try? session.send(data, toPeers: [peer], with: .unreliable) // audio temps réel (M3-07)
+    }
+
     func disconnect() {
         if let handler = pendingInvitation { pendingInvitation = nil; handler(false, nil) }
         if let peer = callPeer { session?.cancelConnectPeer(peer) }

@@ -21,8 +21,14 @@ protocol CallTransport: AnyObject {
     /// Répond à l'invitation en attente (sans effet s'il n'y en a pas).
     func answerInvitation(accept: Bool)
     func send(_ data: Data)
+    /// Envoi temps réel non fiable (audio, M3-07) : perte et désordre possibles.
+    func sendUnreliable(_ data: Data)
     /// Ferme la connexion d'appel et annule toute invitation en cours.
     func disconnect()
+}
+
+extension CallTransport {
+    func sendUnreliable(_ data: Data) { send(data) }
 }
 
 /// Délai annulable (injectable : les tests déclenchent les échéances à la main).

@@ -76,7 +76,7 @@ final class PrivacyTests: XCTestCase {
         await state.requestCall(with: NearbyPeer(pseudonym: Pseudonym(value: "ABCDEFGHIJKLM")))
         XCTAssertTrue(state.isInCall)
         XCTAssertTrue(state.call.holdsKeyMaterial)
-        XCTAssertEqual(j.liveHolderCount, 2) // la session d'appel est enregistrée dès le début de l'appel
+        XCTAssertEqual(j.liveHolderCount, 3) // session d'appel + chaîne audio (M3-07) enregistrées dès le début
         state.hangUp()
         XCTAssertFalse(state.isInCall)
         XCTAssertFalse(state.call.holdsKeyMaterial)

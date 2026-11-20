@@ -66,6 +66,10 @@ final class CallSession {
     /// Pseudonyme du pair de l'appel en cours (affiché via son alias).
     private(set) var peerID: String?
     var onPhaseChange: ((CallPhase) -> Void)?
+    /// Paquet AUDIO authentifié reçu en appel actif (M3-07).
+    var onAudioPacket: ((OpenedPacket) -> Void)?
+    /// Paquet rejeté (tag invalide, mal formé) en appel actif (M3-07, compteur DEBUG).
+    var onPacketRejected: (() -> Void)?
 
     private let transport: CallTransport
     private let scheduler: DeadlineScheduler
@@ -316,13 +320,18 @@ final class CallSession {
             opened = try crypter.open(data)
         } catch {
             AppLog.log(error as? ReplayError == .replayedOrOutOfWindow ? .packetReplayRejected : .packetRejected)
-            // Tag invalide ou paquet rejoué (M3-08) pendant la vérification : fermeture (M2-07). En appel actif : ignoré.
-            if case .verifying = phase { fail(.protocolError) }
+            // Tag invalide ou paquet rejoué (M3-08) pendant la vérification : fermeture (M2-07).
+            // En appel actif : ignoré, mais compté une seule fois (`onPacketRejected`).
+            if case .verifying = phase { fail(.protocolError) } else { onPacketRejected?() }
             return
         }
-        guard opened.header.type == .control, let code = opened.plaintext.first.flatMap(ControlCode.init) else {
-            return // AUDIO : M3-07 (rejeu déjà filtré par la fenêtre M3-08 dans `open`)
+        if opened.header.type == .audio {
+            // AUDIO authentifié et hors rejeu (fenêtre M3-08 dans `open`) : transmis seulement en `.active` (M2-06).
+            if canExchangeAudio { onAudioPacket?(opened) }
+            return
         }
+        guard opened.header.type == .control else { return }
+        guard let code = opened.plaintext.first.flatMap(ControlCode.init) else { return }
         switch code {
         case .hangUp:
             transport.disconnect()
@@ -345,10 +354,7 @@ final class CallSession {
 
     @discardableResult
     private func sendControl(_ code: ControlCode) -> Bool {
-        guard let crypter else { return false }
-        let elapsed = max(0, clock() - sessionStart) * 1000
-        let ts = UInt32(min(elapsed, Double(UInt32.max)))
-        guard let packet = try? crypter.seal(Data([code.rawValue]), type: .control, timestampMs: ts) else { return false }
+        guard let packet = seal(Data([code.rawValue]), type: .control) else { return false }
         transport.send(packet)
         return true
     }
@@ -360,6 +366,20 @@ final class CallSession {
         if fakeFingerprint { return FingerprintDemo.alter(commitment: commitment) }
         #endif
         return commitment
+    }
+
+    /// Trame audio compressée → paquet AUDIO chiffré, envoyé en `.unreliable`. Uniquement en appel actif.
+    func sendAudio(_ frame: Data) -> Bool {
+        guard canExchangeAudio, let packet = seal(frame, type: .audio) else { return false }
+        transport.sendUnreliable(packet)
+        return true
+    }
+
+    private func seal(_ plaintext: Data, type: PacketType) -> Data? {
+        guard let crypter else { return nil }
+        let elapsed = max(0, clock() - sessionStart) * 1000
+        let ts = UInt32(min(elapsed, Double(UInt32.max)))
+        return try? crypter.seal(plaintext, type: type, timestampMs: ts)
     }
 
     // MARK: Délais et fin

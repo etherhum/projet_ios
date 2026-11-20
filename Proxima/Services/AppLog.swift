@@ -59,6 +59,11 @@ enum AppLog {
         case secretsWiped
         // Audio
         case microphoneDenied
+        case audioStarted
+        case audioStopped
+        case audioCodecFallback
+        case audioCodecUnavailable
+        case audioInterrupted
 
         var category: Category {
             switch self {
@@ -68,7 +73,8 @@ enum AppLog {
                  .callFailedProtocol, .callFailedCodeMismatch, .callFailedDisconnected,
                  .invitationRateLimited, .invitationBlocked, .peerBlocked: return .session
             case .callKeysEstablished, .packetReplayRejected, .packetRejected, .secretsWiped: return .crypto
-            case .microphoneDenied: return .audio
+            case .microphoneDenied, .audioStarted, .audioStopped, .audioCodecFallback, .audioCodecUnavailable,
+                 .audioInterrupted: return .audio
             }
         }
 
@@ -79,8 +85,9 @@ enum AppLog {
                  .callOutgoing, .callIncoming, .callAccepted, .callDeclined, .callKeysEstablished, .callActive,
                  .callEndedLocally, .callEndedRemotely, .callFailedDeclinedOrNoAnswer, .callFailedTimeout,
                  .callFailedDisconnected, .invitationRateLimited, .invitationBlocked, .peerBlocked,
-                 .secretsWiped: return .info
-            case .microphoneDenied: return .notice
+                 .secretsWiped, .audioStarted, .audioStopped: return .info
+            case .microphoneDenied, .audioCodecFallback, .audioInterrupted: return .notice
+            case .audioCodecUnavailable: return .error
             case .callFailedProtocol, .callFailedCodeMismatch: return .error
             }
         }
@@ -112,6 +119,11 @@ enum AppLog {
             case .packetRejected: return "Paquet rejeté (format, fraîcheur ou authentification)"
             case .secretsWiped: return "Secrets de session effacés"
             case .microphoneDenied: return "Permission micro refusée"
+            case .audioStarted: return "Audio de l'appel démarré"
+            case .audioStopped: return "Audio de l'appel arrêté, tampons effacés"
+            case .audioCodecFallback: return "Codec vocal de repli utilisé"
+            case .audioCodecUnavailable: return "Codec vocal indisponible"
+            case .audioInterrupted: return "Audio interrompu par le système"
             }
         }
 
