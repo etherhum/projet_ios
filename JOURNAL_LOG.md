@@ -219,3 +219,9 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Non traité : M4-05 (#39), M4-07 (#41), M5-04 (#46), qui dépendent des rapports d'audit croisé et des livrables finaux.
 - Limite : tests unitaires non exécutés (Xcode absent du poste).
 - Remarque : la fusion automatique des PR (workflow du dépôt) ne remplace pas une relecture humaine ; la revue ci-dessus en tient lieu pour la crypto.
+
+## 2026-11-20 — Architecte sécurité : issues encore ouvertes
+
+- Demande reformulée : « Plusieurs issues du rôle architecte sécurité sont toujours ouvertes : faire ce qui peut l'être. »
+- Réalisé : état des contre-mesures STRIDE après M3 (`docs/M1-07-stride.md`), gabarit de triage (M4-05), checklist des livrables (M5-04), revue de sécurité publiée sur chaque PR crypto fusionnée pour clore M3-13.
+- Reste ouvert : #39, #41, #46, qui attendent les failles de l'audit croisé (M4) et la fin du projet.

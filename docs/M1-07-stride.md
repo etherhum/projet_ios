@@ -52,3 +52,23 @@ Actifs A1–A7 et attaquants T1–T4 : voir M1-06. Références de conception : 
 - Un attaquant qui obtient du même utilisateur **une comparaison de code faite sans attention** gagne la partie sur S1 : facteur humain, atténué par un code court, lisible, et un message explicite.
 - Analyse de trafic : un observateur radio voit qu'un flux chiffré existe et sa durée.
 - Les identifiants de couche liaison (MAC AWDL) sont gérés par iOS : non maîtrisés, à auditer par la red team.
+
+## État des contre-mesures après M3 (revue du 2026-11-20)
+
+Constaté par lecture du code sur `main` (cf. M3-13). Les tests n'ont pas été exécutés par l'architecte. Les failles de l'audit croisé (M4) seront ajoutées en M4-07.
+
+| Menace | État | Où |
+|---|---|---|
+| S1, S2 | Implémentée (code à 6 chiffres + engagement, QR) | `Handshake`, `Fingerprint`, `CallSession` |
+| T1 | Implémentée (AES-GCM, en-tête en AAD) | `PacketCrypter` |
+| T2 | Implémentée (transcript dans HKDF et dans le code) | `Handshake.transcript`, `SessionKeys` |
+| R1, R2 | Choix assumé, rien à implémenter | M2-08 |
+| I1 | Implémentée (pseudonyme éphémère, validation) | `Pseudonym`, `DiscoveryValidator`, `check-forbidden-apis.sh` |
+| I2 | Implémentée (façade de logs, script de contrôle) | `AppLog`, M3-12 |
+| I3 | Implémentée (masquage multitâche) | `PrivacyShield` (M3-11) |
+| I4 | Implémentée (clés détruites en fin de session) | `SessionKeys.destroy`, `SecretsJanitor` |
+| D1 | Implémentée (limitation des demandes) | `CallRequestGate` (M3-09) |
+| D2 | Implémentée (rejet précoce, >20 rejets/5 s, délais 30 s, 1 h max) | `PacketCrypter`, `ReplayWindow`, `CallSession` |
+| E1 | **Non couverte** : Face ID absent (issue #68) | M2-08 |
+| E2 | Implémentée en lecture (longueurs fixes, machine à états) ; à confirmer par la red team | `HandshakeMessage`, `PacketHeader.parse` |
+| E3 | Partielle : permission micro au moment du besoin ; à vérifier par la red team | `MicrophonePermission` |
