@@ -108,6 +108,8 @@ final class CryptoTests: XCTestCase {
             var t = p
             t[index] ^= (index == 1 ? 0x01 : 0x80)
             XCTAssertThrowsError(try cr.open(t), "octet \(index)") {
+                // M3-08 : un compteur altéré hors fenêtre est rejeté par l'anti-rejeu avant AES-GCM.
+                if (2...9).contains(index), $0 as? ReplayError == .replayedOrOutOfWindow { return }
                 XCTAssertEqual($0 as? CryptoError, .authenticationFailed)
             }
         }
