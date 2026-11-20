@@ -31,3 +31,10 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Non traité : issues M3 à M5 (#23, #29, #32, #39, #41, #46), qui dépendent du code, d'un audit ou de jalons ultérieurs.
 - Choix signalés : le rayon (M2-04) n'utilise pas le RSSI car Multipeer ne l'expose pas ; aucune clé d'identité Secure Enclave (M2-08) pour préserver l'anonymat ; code de vérification à 6 chiffres avec engagement préalable (M2-05/06).
 - Relecture : contenu généré par IA, à relire par l'équipe (et le point codec Opus à confirmer par prototype).
+
+## 2026-11-20 — Issue #9 (M2-01) : choix du transport pair-à-pair
+
+- Demande reformulée : « En tant que développeur iOS, traiter dans l'ordre les issues du rôle iOS à partir du sujet du projet (`Projet M2.pdf`). Pour M2-01, comparer Multipeer Connectivity, CoreBluetooth et Network framework, et choisir un transport qui fonctionne avec un compte Apple gratuit et **sans que les iPhones soient sur le même Wi-Fi**. Évaluer l'intérêt du Bluetooth seul. »
+- Échanges : le BLE seul est écarté (débit insuffisant pour l'audio) ; Multipeer est retenu, sans BLE complémentaire.
+- Livrable : `docs/M2-01-transport.md` (tableau comparatif + justification).
+- Relecture : contenu relu par le développeur humain avant PR.
