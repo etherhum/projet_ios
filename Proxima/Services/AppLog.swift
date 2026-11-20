@@ -48,6 +48,8 @@ enum AppLog {
         case callFailedProtocol
         case callFailedCodeMismatch
         case callFailedDisconnected
+        case callFailedSessionLimit
+        case callFailedAudio
         // Anti-spam (M3-09)
         case invitationRateLimited
         case invitationBlocked
@@ -55,6 +57,14 @@ enum AppLog {
         // Anti-rejeu / validation (M3-08)
         case packetReplayRejected
         case packetRejected
+        // Échec en sécurité (M3-10) : une catégorie par cause, aucun détail
+        case rejectionThresholdExceeded
+        case sessionMaxDurationReached
+        case sendCounterExhausted
+        case sealFailed
+        case transportSendFailed
+        case audioFrameRejected
+        case audioFailureClosedCall
         // Arrière-plan (M3-11)
         case secretsWiped
         // Audio
@@ -71,24 +81,28 @@ enum AppLog {
             case .invitationDeclined, .callOutgoing, .callIncoming, .callAccepted, .callDeclined, .callActive,
                  .callEndedLocally, .callEndedRemotely, .callFailedDeclinedOrNoAnswer, .callFailedTimeout,
                  .callFailedProtocol, .callFailedCodeMismatch, .callFailedDisconnected,
+                 .callFailedSessionLimit, .callFailedAudio, .sessionMaxDurationReached, .transportSendFailed,
                  .invitationRateLimited, .invitationBlocked, .peerBlocked: return .session
-            case .callKeysEstablished, .packetReplayRejected, .packetRejected, .secretsWiped: return .crypto
-            case .microphoneDenied, .audioStarted, .audioStopped, .audioCodecFallback, .audioCodecUnavailable,
+            case .callKeysEstablished, .packetReplayRejected, .packetRejected, .secretsWiped,
+                 .rejectionThresholdExceeded, .sendCounterExhausted, .sealFailed: return .crypto
+            case .microphoneDenied, .audioFrameRejected, .audioFailureClosedCall, .audioStarted, .audioStopped, .audioCodecFallback, .audioCodecUnavailable,
                  .audioInterrupted: return .audio
             }
         }
 
         var level: Level {
             switch self {
-            case .rotationDeferredDuringCall, .packetReplayRejected, .packetRejected: return .debug
+            case .rotationDeferredDuringCall, .packetReplayRejected, .packetRejected, .audioFrameRejected: return .debug
             case .discoveryStarted, .discoveryStopped, .pseudonymRotated, .invitationDeclined,
                  .callOutgoing, .callIncoming, .callAccepted, .callDeclined, .callKeysEstablished, .callActive,
                  .callEndedLocally, .callEndedRemotely, .callFailedDeclinedOrNoAnswer, .callFailedTimeout,
                  .callFailedDisconnected, .invitationRateLimited, .invitationBlocked, .peerBlocked,
-                 .secretsWiped, .audioStarted, .audioStopped: return .info
+                 .secretsWiped, .audioStarted, .audioStopped, .callFailedSessionLimit,
+                 .sessionMaxDurationReached: return .info
             case .microphoneDenied, .audioCodecFallback, .audioInterrupted: return .notice
             case .audioCodecUnavailable: return .error
-            case .callFailedProtocol, .callFailedCodeMismatch: return .error
+            case .callFailedProtocol, .callFailedCodeMismatch, .callFailedAudio, .rejectionThresholdExceeded,
+                 .sendCounterExhausted, .sealFailed, .transportSendFailed, .audioFailureClosedCall: return .error
             }
         }
 
@@ -112,6 +126,15 @@ enum AppLog {
             case .callFailedProtocol: return "Échec : erreur de protocole"
             case .callFailedCodeMismatch: return "Échec : codes de vérification différents"
             case .callFailedDisconnected: return "Échec : connexion perdue"
+            case .callFailedSessionLimit: return "Échec : limite de session atteinte"
+            case .callFailedAudio: return "Échec : audio indisponible"
+            case .rejectionThresholdExceeded: return "Trop de paquets rejetés : session fermée"
+            case .sessionMaxDurationReached: return "Durée maximale de session atteinte"
+            case .sendCounterExhausted: return "Compteur d'émission épuisé"
+            case .sealFailed: return "Chiffrement d'un paquet impossible"
+            case .transportSendFailed: return "Envoi sur le lien impossible"
+            case .audioFrameRejected: return "Trame audio invalide rejetée"
+            case .audioFailureClosedCall: return "Échec audio : appel fermé"
             case .invitationRateLimited: return "Demande d'appel limitée (anti-spam)"
             case .invitationBlocked: return "Demande d'appel d'un pair bloqué ignorée"
             case .peerBlocked: return "Pair bloqué pour la session"
@@ -143,6 +166,8 @@ enum AppLog {
             case .failed(.protocolError): return .callFailedProtocol
             case .failed(.codeMismatch): return .callFailedCodeMismatch
             case .failed(.disconnected): return .callFailedDisconnected
+            case .failed(.sessionLimitReached): return .callFailedSessionLimit
+            case .failed(.audioUnavailable): return .callFailedAudio
             }
         }
     }

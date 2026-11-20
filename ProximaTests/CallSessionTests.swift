@@ -83,7 +83,7 @@ final class FakeScheduler: DeadlineScheduler {
     }
     private(set) var tokens: [Token] = []
     func schedule(after seconds: TimeInterval, _ handler: @escaping @MainActor () -> Void) -> DeadlineToken {
-        XCTAssertEqual(seconds, 30)
+        XCTAssertTrue(seconds == 30 || seconds == CallSession.maxSessionDuration)
         let t = Token(); t.handler = handler; tokens.append(t)
         return t
     }

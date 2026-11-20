@@ -9,10 +9,16 @@ final class FakeAudioIO: AudioIO {
     private(set) var stopped = 0
     private(set) var played: [AVAudioPCMBuffer] = []
     var onCapture: ((AVAudioPCMBuffer) -> Void)?
-    func start(onCapture: @escaping (AVAudioPCMBuffer) -> Void) throws { started += 1; self.onCapture = onCapture }
+    func start(onCapture: @escaping (AVAudioPCMBuffer) -> Void) throws {
+        if failStart { throw EngineAudioIO.IOError.unavailable }
+        started += 1; self.onCapture = onCapture
+    }
     func stop() { stopped += 1; onCapture = nil }
     func play(_ buffer: AVAudioPCMBuffer) { played.append(buffer) }
     func setSpeaker(_ on: Bool) {}
+    var onFailure: (() -> Void)?
+    /// Simule une session audio impossible à activer (M3-10).
+    var failStart = false
 }
 
 private func sine(frames: Int, offset: Int = 0, freq: Float = 440) -> AVAudioPCMBuffer {

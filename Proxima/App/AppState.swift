@@ -56,6 +56,12 @@ final class AppState: ObservableObject {
         audio.sendFrame = { [weak call] frame in call?.sendAudio(frame) ?? false }
         call.onAudioPacket = { [weak audio] packet in audio?.receive(packet) }
         call.onPacketRejected = { [weak audio] in audio?.noteRejected() }
+        // M3-10 : trame audio invalide = paquet invalide ; panne audio = fermeture (différée : on peut être
+        // dans une notification de changement de phase de la session).
+        audio.onInvalidFrame = { [weak call] in call?.noteInvalidAudioFrame() }
+        audio.onFailure = { [weak call] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { call?.audioFailed() } }
+        }
         discovery.onEvent = { [weak self] event in
             guard let self else { return }
             switch event {

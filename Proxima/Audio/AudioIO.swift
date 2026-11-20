@@ -10,6 +10,8 @@ protocol AudioIO: AnyObject {
     /// Planifie une trame décodée (`VoiceFormat.pcm`) en lecture.
     func play(_ buffer: AVAudioPCMBuffer)
     func setSpeaker(_ on: Bool)
+    /// Panne après démarrage (reconstruction du moteur impossible…) : signalée sur la file principale (M3-10).
+    var onFailure: (() -> Void)? { get set }
 }
 
 /// Implémentation `AVAudioEngine` : tap sur `inputNode` (traitement voix : annulation d'écho),
@@ -29,6 +31,7 @@ final class EngineAudioIO: AudioIO {
     private let queuedLock = NSLock()
     private var queued = 0
     private var configObserver: NSObjectProtocol?
+    var onFailure: (() -> Void)?
 
     init() {
         session.onEvent = { [weak self] event in
@@ -75,7 +78,7 @@ final class EngineAudioIO: AudioIO {
     private func restart() {
         guard engine != nil else { return }
         tearDownEngine()
-        do { try build() } catch { tearDownEngine() }
+        do { try build() } catch { tearDownEngine(); onFailure?() } // jamais d'appel actif sans audio : fermeture
     }
 
     private func convertAndDeliver(_ buffer: AVAudioPCMBuffer) {

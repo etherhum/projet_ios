@@ -69,6 +69,10 @@ final class AudioPipeline: ObservableObject {
 
     /// Chiffre et envoie une trame (fourni par `AppState` → `CallSession.sendAudio`). Retourne `false` si refusé.
     var sendFrame: ((Data) -> Bool)?
+    /// Démarrage impossible (codec, session audio, moteur) ou panne en cours d'appel : l'appel doit être fermé (M3-10).
+    var onFailure: (() -> Void)?
+    /// Trame authentifiée mais invalide pour le codec (taille, décodage) : paquet invalide (M2-09, M3-10).
+    var onInvalidFrame: (() -> Void)?
 
     let codec: VoiceCodecKind
     private let io: AudioIO
@@ -81,6 +85,11 @@ final class AudioPipeline: ObservableObject {
     init(io: AudioIO, codec: VoiceCodecKind = .resolved) {
         self.io = io
         self.codec = codec
+        io.onFailure = { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.stop()
+            self.onFailure?()
+        }
     }
 
     /// Nombre de trames ou d'échantillons PCM encore en mémoire (0 après `stop()`).
@@ -94,6 +103,7 @@ final class AudioPipeline: ObservableObject {
         guard !isRunning else { return }
         guard let encoder = try? VoiceEncoder(kind: codec), let decoder = try? VoiceDecoder(kind: codec) else {
             AppLog.log(.audioCodecUnavailable)
+            onFailure?()
             return
         }
         if codec != .opus { AppLog.log(.audioCodecFallback) }
@@ -110,7 +120,8 @@ final class AudioPipeline: ObservableObject {
                 }
             }
         } catch {
-            io.stop()
+            io.stop() // session audio non activable : on ne continue pas l'appel sans audio (M3-10)
+            onFailure?()
             return
         }
         io.setSpeaker(speakerOn)
@@ -145,6 +156,7 @@ final class AudioPipeline: ObservableObject {
         guard isRunning, let decoder, packet.header.type == .audio else { return }
         guard !packet.plaintext.isEmpty, packet.plaintext.count <= codec.maxFrameByteCount else {
             stats.rejected += 1 // taille vérifiée AVANT décodage
+            onInvalidFrame?()
             return
         }
         stats.received += 1
@@ -156,6 +168,8 @@ final class AudioPipeline: ObservableObject {
                 } else {
                     stats.rejected += 1 // erreur de décodage = paquet invalide (M2-09)
                     if let s = decoder.silence() { io.play(s) }
+                    onInvalidFrame?()
+                    guard isRunning else { return } // la politique de rejets a pu fermer l'appel
                 }
             case .lost:
                 if let s = decoder.silence() { io.play(s) }

@@ -98,12 +98,25 @@ final class NearbyService: NSObject, PeerDiscovering, CallTransport {
 
     func send(_ data: Data) {
         guard let session, let peer = callPeer, session.connectedPeers.contains(peer) else { return }
-        try? session.send(data, toPeers: [peer], with: .reliable) // échec : la session détectera la déconnexion
+        transmit(data, mode: .reliable)
     }
 
     func sendUnreliable(_ data: Data) {
-        guard let session, let peer = callPeer, session.connectedPeers.contains(peer) else { return }
-        try? session.send(data, toPeers: [peer], with: .unreliable) // audio temps réel (M3-07)
+        transmit(data, mode: .unreliable) // audio temps réel (M3-07)
+    }
+
+    /// Envoi sur le lien d'appel. Un échec n'est plus ignoré (M3-10) : lien fermé et `.disconnected` signalé
+    /// à la session (différé d'un tour de boucle pour ne pas ré-entrer dans la session pendant son envoi).
+    private func transmit(_ data: Data, mode: MCSessionSendDataMode) {
+        guard let session, let peer = callPeer else { return }
+        guard session.connectedPeers.contains(peer) else { return } // connexion en cours / perdue : délégué
+        do {
+            try session.send(data, toPeers: [peer], with: mode)
+        } catch {
+            AppLog.log(.transportSendFailed)
+            disconnect()
+            Task { @MainActor in self.onCallEvent?(.disconnected) }
+        }
     }
 
     func disconnect() {

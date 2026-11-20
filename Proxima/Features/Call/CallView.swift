@@ -135,6 +135,8 @@ struct CallView: View {
         case .protocolError: return "Connexion sécurisée impossible. Appel fermé."
         case .codeMismatch: return "Codes différents : appel fermé"
         case .disconnected: return "Connexion perdue"
+        case .sessionLimitReached: return "Durée maximale atteinte. Appel fermé."
+        case .audioUnavailable: return "Audio indisponible. Appel fermé."
         }
     }
 
