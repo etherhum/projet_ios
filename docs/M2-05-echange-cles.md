@@ -65,3 +65,11 @@ Détails :
 ## Menaces STRIDE couvertes
 
 S1, T2, I4 (cf. M1-07).
+
+## Précision sur les paramètres `info` HKDF (validation du 2026-11-20)
+
+Les `info` contiennent le caractère non ASCII « → » (U+2192), par exemple `proxcall/v1/key I→R`. Décision de l'architecte sécurité : **accepté, non bloquant**.
+
+- Les `info` sont les **octets UTF-8** de ces chaînes (`Data("…".utf8)`), sans normalisation Unicode : `→` = `E2 86 92`. Les deux iPhones exécutent le même code, donc les mêmes octets : aucun risque cryptographique ni d'interopérabilité dans ce projet.
+- Écart de style assumé : si le protocole change de version (`v2`), préférer des étiquettes ASCII (`I2R`, `R2I`). Pas de changement avant la démo, pour ne pas modifier du code crypto déjà relu et testé.
+- Un test unitaire vérifiant les octets exacts des trois `info` protège contre une modification accidentelle (à ajouter par le développeur iOS).

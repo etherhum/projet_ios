@@ -72,3 +72,5 @@ Constaté par lecture du code sur `main` (cf. M3-13). Les tests n'ont pas été 
 | E1 | **Non couverte** : Face ID absent (issue #68) | M2-08 |
 | E2 | Implémentée en lecture (longueurs fixes, machine à états) ; à confirmer par la red team | `HandshakeMessage`, `PacketHeader.parse` |
 | E3 | Partielle : permission micro au moment du besoin ; à vérifier par la red team | `MicrophonePermission` |
+
+**Note (validation 2026-11-20)** : I1 reste couverte. La rotation en fin d'appel ne s'applique qu'après un appel établi, pour ne pas affaiblir le blocage anti-spam (D1) ; fenêtre maximale de corrélation d'un pseudonyme : 10 min (M2-03).

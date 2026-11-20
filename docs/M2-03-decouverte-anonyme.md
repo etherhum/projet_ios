@@ -62,3 +62,19 @@ Critère d'acceptation de l'issue. À fournir en M3-03 (preuve produite avec l'i
 - Les identifiants de couche liaison (adresse MAC AWDL/Wi-Fi, adresse Bluetooth) sont gérés par iOS (adresses privées/aléatoires). Non contrôlés par l'app : à observer pendant la capture, pas à promettre.
 - Le type de service constant permet de savoir que l'app est utilisée à proximité.
 - Un attaquant peut inventer autant de pseudonymes qu'il veut (spam, M3-09).
+
+## Validation : moment de la rotation du pseudonyme (2026-11-20)
+
+Le développeur iOS a restreint la rotation « fin d'appel » : le pseudonyme change à la fin d'un appel **réellement établi** (clés dérivées), ou si une rotation périodique a été reportée pendant l'appel. Il ne change **pas** après un appel refusé, sans réponse, bloqué ou expiré. Raison : sinon un appelant bloqué réapparaîtrait aussitôt sous un nouveau pseudonyme et contournerait le blocage (M3-09, STRIDE D1).
+
+Décision de l'architecte sécurité : **validé, avec cette règle écrite dans la spécification.**
+
+| Règle | Valeur |
+|---|---|
+| Nouveau pseudonyme | À chaque démarrage ou retour au premier plan, toutes les 10 min hors appel, à la fin d'un appel établi |
+| Pas de nouveau pseudonyme | Après refus, absence de réponse, blocage ou délai de demande |
+| Fenêtre maximale de corrélation d'un pseudonyme | 10 min (inchangée) |
+
+Impact sur STRIDE I1 (traçage) : **faible**. La durée maximale pendant laquelle un même pseudonyme est visible reste 10 min ; une demande refusée n'expose rien de plus que ce que tout appareil à portée voit déjà pendant cette fenêtre. Le gain est sur D1 (blocage efficace).
+
+Limites assumées : un attaquant qui relance l'app obtient un nouveau pseudonyme (le blocage reste un frein, pas une garantie : la limite globale de M3-09 contient le reste). Un appelant refusé garde son pseudonyme jusqu'à 10 min.
