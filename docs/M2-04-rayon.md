@@ -1,37 +1,28 @@
 # M2-04 · Estimation du « rayon »
 
-## Méthode retenue
+## Constat
 
-Le transport est Multipeer Connectivity seul (cf. M2-01). Multipeer **n'expose pas** la puissance du signal (RSSI) ni la distance.
+L'issue demande une estimation par puissance du signal (RSSI). Or le transport retenu (Multipeer Connectivity, M2-01) **n'expose pas le RSSI** : seul CoreBluetooth le fournit, au prix d'une permission Bluetooth supplémentaire et d'un second canal d'annonce à anonymiser.
 
-Le « rayon » est donc **défini par la portée radio** :
+## Décision pour le MVP
 
-> Un utilisateur apparaît dans la liste ⇔ son iPhone est joignable directement (Wi-Fi pair-à-pair AWDL ou Bluetooth), sans relais ni Internet.
+> **Le « rayon » est la portée du lien Multipeer elle-même** : un pair n'est listé que s'il est atteignable par le lien direct iOS (≈ 10–30 m, selon obstacles). L'app n'affiche **ni distance, ni rang de proximité** : seulement « à portée ».
 
-L'app affiche « à proximité » sans distance chiffrée.
+| Option | Méthode | Verdict |
+|---|---|---|
+| **A. Portée du lien (retenue)** | Un pair apparaît/disparaît selon `foundPeer` / `lostPeer` | Simple, aucune permission en plus, pas de faux sentiment de précision |
+| B. RSSI BLE | Scan BLE, conversion RSSI → distance | **Reportée** (hors MVP) : permission Bluetooth, 2ᵉ canal d'annonce, précision médiocre (voir ci-dessous) |
+| C. Temps de trajet (RTT) | Ping authentifié sur le lien | Rejetée : mesure la charge radio, pas la distance |
+| D. GPS | Position de chaque appareil | Rejetée : donnée de localisation sensible, contraire à la minimisation (M1-08) |
 
-## Précision attendue
+## Précision attendue et limites (à assumer)
 
-| Environnement | Portée typique observée |
-|---|---|
-| Extérieur dégagé | ~30 m, parfois plus |
-| Intérieur, même pièce / pièces voisines | ~10–20 m |
-| À travers murs porteurs / étages | quelques mètres, ou rien |
+- **Précision** : un seul niveau, « à portée / hors portée ». Marge : la portée réelle varie du simple au triple selon murs, corps, interférences, modèle d'iPhone.
+- Si B est ajoutée plus tard : RSSI → distance par modèle log-distance, erreur typique de **plusieurs mètres**, instable (orientation, main qui masque l'antenne, puissance d'émission différente selon l'appareil, multi-trajets). On n'afficherait que 2–3 niveaux (« très proche / proche / lointain ») avec moyenne glissante, jamais une valeur en mètres.
+- **Falsifiable** : un attaquant avec une antenne plus puissante paraît plus proche qu'il n'est ; un attaquant discret avec une faible puissance semble plus loin. Le rayon est **une aide d'interface, pas une frontière de sécurité** : la sécurité repose sur le chiffrement et la vérification du pair, jamais sur « il est proche donc il est de confiance ».
+- Aucune position n'est calculée ni stockée (RGPD, M1-08).
 
-Valeurs indicatives : à mesurer sur nos 2 iPhones et à reporter dans le journal.
+## Impact sur les issues
 
-## Limites assumées
-
-- **Pas de distance** : on ne sait pas distinguer 2 m de 25 m.
-- **Rayon non réglable** par l'utilisateur.
-- **Variabilité** : corps humain, murs, interférences 2,4/5 GHz changent fortement la portée.
-- **Asymétrie** : A peut voir B un instant avant que B voie A.
-- **Pas de garantie de présence physique** : un attaquant avec une antenne plus puissante peut paraître « proche ». Le rayon n'est **pas** un mécanisme de sécurité ; l'authentification repose sur la vérification d'empreinte (M3-06).
-
-## Alternative écartée
-
-Une annonce BLE complémentaire donnerait le RSSI (estimation grossière, ±plusieurs mètres), au prix de la permission Bluetooth et d'un deuxième canal à anonymiser. Écartée au nom du moindre privilège ; réévaluable si le besoin d'un rayon chiffré apparaît.
-
-## Vie privée
-
-Aucune estimation de distance ou de position n'est calculée, stockée ou journalisée (cf. M3-12).
+- M3-03 : liste des pairs = pairs Multipeer vus, avec retrait à `lostPeer`.
+- À valider avec le développeur iOS (rôle partagé de l'issue) : si l'équipe souhaite tout de même un indicateur de proximité, ouvrir une issue pour l'option B avec mise à jour de M2-01, M2-03 (annonces BLE anonymes) et STRIDE.
