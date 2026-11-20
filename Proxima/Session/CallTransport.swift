@@ -4,6 +4,10 @@ import Foundation
 enum CallTransportEvent: Equatable {
     /// Invitation reçue d'un pair (pseudonyme validé) avec son contexte (= COMMIT).
     case invitation(from: String, context: Data)
+    /// Appels croisés : invitation reçue du pair que l'on est en train d'appeler, alors que la règle
+    /// de départage (plus petit pseudonyme = appelant retenu) nous désigne comme appelé. Le transport a
+    /// déjà annulé notre propre invitation ; la session bascule en appel entrant.
+    case crossedInvitation(from: String, context: Data)
     /// Connexion établie avec le pair de l'appel.
     case connected
     /// Connexion perdue, invitation refusée ou expirée.

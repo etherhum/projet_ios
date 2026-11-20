@@ -17,7 +17,7 @@ struct AudioControlsView: View {
             }
             #if DEBUG
             // Démo « paquets chiffrés vérifiés » : uniquement des nombres, aucun contenu.
-            Text("Envoyés \(audio.stats.sent) · reçus \(audio.stats.received) · rejetés \(audio.stats.rejected) · \(audio.codec.rawValue)")
+            Text("Envoyés \(audio.stats.sent) · reçus \(audio.stats.received) · rejetés \(audio.stats.rejected) · perdus \(audio.stats.lost) · \(audio.codec.rawValue)")
                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             #endif
         }

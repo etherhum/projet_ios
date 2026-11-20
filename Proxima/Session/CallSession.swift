@@ -10,8 +10,12 @@ enum CallFailure: Equatable {
     case protocolError
     /// Codes déclarés différents (M2-06).
     case codeMismatch
-    /// Connexion perdue avant la fin.
+    /// Connexion perdue avant la fin (ou envoi impossible sur le lien).
     case disconnected
+    /// Limite de session atteinte : durée maximale (1 h) ou compteur d'émission épuisé (M2-07, M3-10).
+    case sessionLimitReached
+    /// Audio impossible à démarrer ou perdu (session audio, codec, moteur) : on ne continue pas sans protection (M3-10).
+    case audioUnavailable
 }
 
 enum CallEnd: Equatable {
@@ -59,6 +63,11 @@ final class CallSession {
     /// Délai de chaque étape (demande, poignée de main, vérification) : 30 s (M2-05, M2-06).
     static let stepTimeout: TimeInterval = 30
     static let requestTimeout: TimeInterval = stepTimeout
+    /// Durée maximale d'une session à clés établies : 1 h, puis fermeture et effacement (M2-07, M3-10).
+    static let maxSessionDuration: TimeInterval = 3_600
+    /// Politique de rejets en appel actif (M2-07 § Politique d'erreur) : plus de 20 rejets en 5 s ⇒ fermeture.
+    static let rejectionLimit = 20
+    static let rejectionWindow: TimeInterval = 5
 
     private(set) var phase: CallPhase = .idle {
         didSet { if phase != oldValue { onPhaseChange?(phase) } }
@@ -74,6 +83,8 @@ final class CallSession {
     private let transport: CallTransport
     private let scheduler: DeadlineScheduler
     private let clock: () -> TimeInterval
+    /// Limite du compteur d'émission (injectable pour tester l'épuisement ; défaut M2-07 : 2³²).
+    private let sendCounterLimit: UInt64
 
     // Matériel de session : tout est remis à nil par `teardown()`.
     private var role: HandshakeRole?
@@ -87,11 +98,19 @@ final class CallSession {
         didSet { if localCodeConfirmed != oldValue { onConfirmationChange?(localCodeConfirmed) } }
     }
     var onConfirmationChange: ((Bool) -> Void)?
-    private var remoteCodeConfirmed = false
+    /// Le pair a confirmé le code (SAS_OK authentifié reçu) ; exposé pour guider l'utilisateur (M3-06, QR).
+    private(set) var remoteCodeConfirmed = false {
+        didSet { if remoteCodeConfirmed != oldValue { onRemoteConfirmationChange?(remoteCodeConfirmed) } }
+    }
+    var onRemoteConfirmationChange: ((Bool) -> Void)?
     /// DEBUG uniquement (`-ProximaFakeFingerprint`) : empreinte affichée volontairement fausse (M3-06).
     private let fakeFingerprint: Bool
     private var deadline: DeadlineToken?
+    /// Échéance de durée maximale de session (armée à l'établissement des clés).
+    private var sessionDeadline: DeadlineToken?
     private var sessionStart: TimeInterval = 0
+    /// Instants des rejets récents en appel actif (fenêtre glissante de `rejectionWindow`).
+    private var rejectionTimes: [TimeInterval] = []
 
     /// Indique si un matériel de clé (paire éphémère ou clés de session) est encore détenu.
     var holdsKeyMaterial: Bool { keyPair != nil || crypter != nil }
@@ -113,8 +132,10 @@ final class CallSession {
     init(transport: CallTransport,
          scheduler: DeadlineScheduler? = nil,
          clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         fakeFingerprint: Bool = false) {
+         fakeFingerprint: Bool = false,
+         sendCounterLimit: UInt64 = CryptoConstants.maxPacketCounter) {
         self.fakeFingerprint = fakeFingerprint
+        self.sendCounterLimit = sendCounterLimit
         self.transport = transport
         self.scheduler = scheduler ?? SystemDeadlineScheduler()
         self.clock = clock
@@ -184,6 +205,7 @@ final class CallSession {
     func rejectCode() {
         guard case .verifying = phase else { return }
         _ = sendControl(.hangUp)
+        guard phase.isBusy else { return } // échec d'envoi : déjà fermé en sécurité
         transport.disconnect()
         finish(.failed(.codeMismatch))
     }
@@ -195,6 +217,7 @@ final class CallSession {
             decline()
         case .outgoingRequest, .handshaking, .verifying, .active:
             _ = sendControl(.hangUp)
+            guard phase.isBusy else { return } // échec d'envoi : déjà fermé en sécurité
             transport.disconnect()
             finish(.ended(.localHangUp))
         case .idle, .failed, .ended:
@@ -216,6 +239,8 @@ final class CallSession {
         switch event {
         case .invitation(let from, let context):
             handleInvitation(from: from, context: context)
+        case .crossedInvitation(let from, let context):
+            handleCrossedInvitation(from: from, context: context)
         case .connected:
             if phase == .outgoingRequest {
                 phase = .handshaking
@@ -248,6 +273,23 @@ final class CallSession {
         commitment = c
         phase = .incomingRequest
         armDeadline(failure: nil) // sans réponse en 30 s : refus (défaut de réponse = refus)
+    }
+
+    /// Appels croisés (A appelle B pendant que B appelle A) : on abandonne notre appel sortant — clé
+    /// éphémère détruite, aucun secret établi — et on présente l'appel du pair comme un appel entrant
+    /// normal (acceptation explicite). Sans phase `idle` intermédiaire : pas de rotation ni d'écran de fin.
+    private func handleCrossedInvitation(from: String, context: Data) {
+        guard phase == .outgoingRequest, peerID == from else { return handleInvitation(from: from, context: context) }
+        guard Pseudonym.isValid(from), case .commit(let c)? = HandshakeMessage.decode(context) else {
+            transport.answerInvitation(accept: false)
+            transport.disconnect()
+            return finish(.failed(.protocolError))
+        }
+        teardown() // notre paire éphémère et notre délai d'appel sortant sont détruits
+        peerID = from
+        commitment = c
+        phase = .incomingRequest
+        armDeadline(failure: nil)
     }
 
     private func handleData(_ data: Data) {
@@ -307,8 +349,12 @@ final class CallSession {
         #if DEBUG
         if fakeFingerprint { code = FingerprintDemo.alter(code: code) }
         #endif
-        crypter = PacketCrypter(keys: keys)
+        crypter = PacketCrypter(keys: keys, sendCounterLimit: sendCounterLimit)
         sessionStart = clock()
+        sessionDeadline = scheduler.schedule(after: Self.maxSessionDuration) { [weak self] in
+            AppLog.log(.sessionMaxDurationReached)
+            self?.fail(.sessionLimitReached) // 1 h maximum (M2-07) : fermeture et effacement
+        }
         phase = .verifying(code: code)
         armDeadline(failure: .timeout) // comparaison des codes : 30 s (M2-06)
     }
@@ -321,8 +367,8 @@ final class CallSession {
         } catch {
             AppLog.log(error as? ReplayError == .replayedOrOutOfWindow ? .packetReplayRejected : .packetRejected)
             // Tag invalide ou paquet rejoué (M3-08) pendant la vérification : fermeture (M2-07).
-            // En appel actif : ignoré, mais compté une seule fois (`onPacketRejected`).
-            if case .verifying = phase { fail(.protocolError) } else { onPacketRejected?() }
+            // En appel actif : compté (politique de rejets M2-07, M3-10).
+            registerRejection()
             return
         }
         if opened.header.type == .audio {
@@ -369,17 +415,65 @@ final class CallSession {
     }
 
     /// Trame audio compressée → paquet AUDIO chiffré, envoyé en `.unreliable`. Uniquement en appel actif.
+    /// Toute erreur de chiffrement (compteur épuisé, clé détruite…) ferme l'appel (M3-10).
     func sendAudio(_ frame: Data) -> Bool {
         guard canExchangeAudio, let packet = seal(frame, type: .audio) else { return false }
         transport.sendUnreliable(packet)
         return true
     }
 
+    /// Trame audio authentifiée mais invalide pour le codec (taille, erreur de décodage) : compte comme
+    /// un paquet invalide (M2-09) dans la politique de rejets.
+    func noteInvalidAudioFrame() {
+        guard canExchangeAudio else { return }
+        AppLog.log(.audioFrameRejected)
+        registerRejection()
+    }
+
+    /// La chaîne audio n'a pas pu démarrer ou s'est arrêtée (session audio, codec, moteur) :
+    /// pas d'appel « actif » sans audio protégé, on ferme et on efface (M3-10).
+    func audioFailed() {
+        guard phase.isBusy else { return }
+        AppLog.log(.audioFailureClosedCall)
+        fail(.audioUnavailable)
+    }
+
+    /// `nil` = échec, la session est déjà fermée (sauf `keyDestroyed` hors appel, sans effet).
     private func seal(_ plaintext: Data, type: PacketType) -> Data? {
         guard let crypter else { return nil }
         let elapsed = max(0, clock() - sessionStart) * 1000
         let ts = UInt32(min(elapsed, Double(UInt32.max)))
-        return try? crypter.seal(plaintext, type: type, timestampMs: ts)
+        do {
+            return try crypter.seal(plaintext, type: type, timestampMs: ts)
+        } catch CryptoError.counterExhausted {
+            AppLog.log(.sendCounterExhausted)
+            fail(.sessionLimitReached)
+            return nil
+        } catch {
+            AppLog.log(.sealFailed)
+            fail(.protocolError)
+            return nil
+        }
+    }
+
+    /// Politique de rejets (M2-07) : en vérification, tout rejet ferme ; en appel actif,
+    /// plus de `rejectionLimit` rejets en `rejectionWindow` secondes ferment la session.
+    private func registerRejection() {
+        switch phase {
+        case .verifying:
+            fail(.protocolError)
+        case .active:
+            onPacketRejected?()
+            let now = clock()
+            rejectionTimes.removeAll { now - $0 >= Self.rejectionWindow }
+            rejectionTimes.append(now)
+            if rejectionTimes.count > Self.rejectionLimit {
+                AppLog.log(.rejectionThresholdExceeded)
+                fail(.protocolError)
+            }
+        default:
+            break
+        }
     }
 
     // MARK: Délais et fin
@@ -399,8 +493,10 @@ final class CallSession {
         }
     }
 
+    /// Échec en sécurité (M3-10) : transport fermé, clés détruites, état terminal `failed`.
+    /// Le pair ne reçoit aucun détail (pas d'oracle). Toujours sans effet hors appel.
     private func fail(_ failure: CallFailure) {
-        guard phase.isBusy else { return }
+        guard phase.isBusy else { teardown(); return }
         transport.disconnect()
         finish(.failed(failure))
     }
@@ -413,6 +509,8 @@ final class CallSession {
     /// Détruit toutes les clés et oublie l'état de poignée de main.
     fileprivate func teardown() {
         deadline?.cancel(); deadline = nil
+        sessionDeadline?.cancel(); sessionDeadline = nil
+        rejectionTimes.removeAll()
         keyPair?.destroy(); keyPair = nil
         crypter?.destroy(); crypter = nil
         ownNonce = nil

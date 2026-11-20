@@ -8,7 +8,7 @@ struct NearbyListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if appState.searchRequested { list } else { welcome }
+                if appState.searchRequested { list.refreshable { appState.refreshNearby() } } else { welcome }
             }
             .navigationTitle("Proxima")
         }
@@ -49,7 +49,7 @@ struct NearbyListView: View {
                 if appState.nearby.peers.isEmpty {
                     HStack(spacing: 12) {
                         ProgressView()
-                        Text("Recherche d'utilisateurs proches…").foregroundStyle(.secondary)
+                        Text("Recherche d'utilisateurs proches… (tirez pour actualiser)").foregroundStyle(.secondary)
                     }
                 }
                 ForEach(appState.nearby.peers) { peer in

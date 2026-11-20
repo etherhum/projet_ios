@@ -18,4 +18,11 @@ protocol PeerDiscovering: AnyObject {
     /// Anti-spam (M3-09) : bloque un pair pour la session (mémoire uniquement) ; ses invitations sont refusées.
     func block(peerID: String)
     func isBlocked(peerID: String) -> Bool
+    /// Relance la recherche sous le MÊME pseudonyme : les pairs réellement présents sont redécouverts,
+    /// les entrées périmées (anciens pseudonymes encore en cache) ne reviennent pas.
+    func refreshBrowsing()
+}
+
+extension PeerDiscovering {
+    func refreshBrowsing() {}
 }

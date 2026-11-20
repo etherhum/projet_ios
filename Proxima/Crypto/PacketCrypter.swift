@@ -63,19 +63,26 @@ final class PacketCrypter {
     /// Anti-rejeu et fraîcheur de la direction de réception (M3-08).
     private let replayWindow: ReplayWindow
 
-    init(keys: SessionKeys, replayWindow: ReplayWindow = ReplayWindow()) {
+    /// Au-delà, `seal` lève `counterExhausted` (M2-07 : 2³² ; injectable pour les tests M3-10).
+    private let sendCounterLimit: UInt64
+
+    init(keys: SessionKeys, replayWindow: ReplayWindow = ReplayWindow(),
+         sendCounterLimit: UInt64 = CryptoConstants.maxPacketCounter) {
         self.keys = keys
         self.replayWindow = replayWindow
+        self.sendCounterLimit = min(sendCounterLimit, CryptoConstants.maxPacketCounter)
     }
 
     func destroy() { keys.destroy() }
+    /// Vrai après `destroy()` : toute opération lève `keyDestroyed` (M3-10).
+    var isDestroyed: Bool { keys.isDestroyed }
 
     func seal(_ plaintext: Data, type: PacketType, timestampMs: UInt32) throws -> Data {
         let key = try keys.currentSendKey()
         guard plaintext.count <= CryptoConstants.maxPlaintextByteCount else { throw CryptoError.plaintextTooLarge }
         if type == .control { try Self.validateControl(plaintext) }
         if type == .audio, plaintext.isEmpty { throw CryptoError.emptyPayload }
-        guard nextSendCounter < CryptoConstants.maxPacketCounter else { throw CryptoError.counterExhausted }
+        guard nextSendCounter < sendCounterLimit else { throw CryptoError.counterExhausted }
         let header = PacketHeader(type: type, counter: nextSendCounter, timestampMs: timestampMs)
         let aad = header.bytes
         let box: AES.GCM.SealedBox
