@@ -10,6 +10,7 @@ struct RootView: View {
             .fullScreenCover(isPresented: Binding(get: { appState.showCallScreen },
                                                   set: { if !$0 { appState.dismissCall() } })) {
                 CallView().environmentObject(appState)
+                    .privacyShield() // M3-11 : la présentation plein écran n'hérite pas de l'overlay racine
             }
             .alert("Micro désactivé", isPresented: $appState.showMicrophoneDeniedAlert) {
                 Button("Ouvrir les Réglages") {
@@ -22,7 +23,7 @@ struct RootView: View {
             .onChange(of: scenePhase) { _, phase in
                 // Découverte uniquement au premier plan (M2-03), et seulement après le tap de l'utilisateur (M3-02).
                 if phase == .active { appState.resumeDiscoveryIfRequested() }
-                else if phase == .background { appState.stopDiscovery() }
+                else if phase == .background { appState.enterBackground() }
             }
     }
 }

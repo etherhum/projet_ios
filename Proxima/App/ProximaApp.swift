@@ -8,6 +8,7 @@ struct ProximaApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(appState)
+                .privacyShield() // M3-11 : aperçu multitâche masqué
         }
     }
 }

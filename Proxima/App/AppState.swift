@@ -22,6 +22,8 @@ final class AppState: ObservableObject {
 
     let discovery: PeerDiscovering
     let microphone: MicrophonePermission
+    /// Effacement des secrets de session (M3-11) : la session d'appel y est enregistrée dès qu'un appel commence.
+    let janitor: SecretsJanitor
     private let rotationTimer: RotationTimer
     private let rotationInterval: TimeInterval
     /// Rotation échue pendant un appel : effectuée à la fin de l'appel (M2-03).
@@ -35,8 +37,10 @@ final class AppState: ObservableObject {
          rotationInterval: TimeInterval = RotationPolicy.interval,
          callTransport: CallTransport? = nil,
          callScheduler: DeadlineScheduler? = nil,
-         fakeFingerprint: Bool = AppState.fakeFingerprintRequested) {
+         fakeFingerprint: Bool = AppState.fakeFingerprintRequested,
+         janitor: SecretsJanitor? = nil) {
         self.discovery = discovery
+        self.janitor = janitor ?? SecretsJanitor()
         self.microphone = microphone
         self.rotationTimer = rotationTimer ?? SystemRotationTimer()
         self.rotationInterval = rotationInterval
@@ -83,8 +87,16 @@ final class AppState: ObservableObject {
         if searchRequested { startDiscovery() }
     }
 
+    /// Passage en arrière-plan (M3-11) : selon `BackgroundCallPolicy` (`.endCall`), le janitor efface les secrets,
+    /// ce qui raccroche l'appel en cours (`CallSession.wipeSecrets`, HANGUP envoyé, clés détruites) ;
+    /// puis la découverte s'arrête (M2-03). Une seule logique : plus de `hangUp` direct ici.
+    func enterBackground() {
+        let callEnded = janitor.appDidEnterBackground()
+        guard callEnded || !isInCall else { return } // `.keepCall` : le transport de l'appel doit rester ouvert
+        stopDiscovery()
+    }
+
     func stopDiscovery() {
-        call.hangUp() // passage en arrière-plan : la session est fermée proprement, clés détruites
         rotationTimer.stop()
         discovering = false
         discovery.stop()
@@ -165,6 +177,10 @@ final class AppState: ObservableObject {
     private func callPhaseChanged(_ phase: CallPhase) {
         let wasBusy = callPhase.isBusy
         callPhase = phase
+        // M3-11 : la session est enregistrée auprès du janitor dès le début d'un appel (paire éphémère puis clés) ;
+        // toute fin d'appel (local, distant, refus, échec, perte du pair) passe ici → `callDidEnd()`.
+        if !wasBusy, phase.isBusy { janitor.register(call) }
+        if wasBusy, !phase.isBusy { janitor.callDidEnd() }
         if let id = call.peerID { callPeer = NearbyPeer(pseudonym: Pseudonym(value: id)) }
         if phase == .idle { callPeer = nil }
         // Fin d'appel : nouveau pseudonyme (M2-03), que la rotation ait été reportée ou non.

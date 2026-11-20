@@ -390,7 +390,7 @@ final class CallSession {
     }
 
     /// Détruit toutes les clés et oublie l'état de poignée de main.
-    private func teardown() {
+    fileprivate func teardown() {
         deadline?.cancel(); deadline = nil
         keyPair?.destroy(); keyPair = nil
         crypter?.destroy(); crypter = nil
@@ -400,5 +400,16 @@ final class CallSession {
         helloSent = false
         localCodeConfirmed = false
         remoteCodeConfirmed = false
+    }
+}
+
+// MARK: M3-11 — effacement des secrets
+
+extension CallSession: SessionSecretHolder {
+    /// Appelé par `SecretsJanitor` (fin d'appel, arrière-plan, terminaison) : un appel en cours est raccroché
+    /// (HANGUP envoyé si possible, transport fermé), puis paire éphémère, clés de session et état de poignée de main
+    /// sont détruits. Idempotent.
+    func wipeSecrets() {
+        if phase.isBusy { hangUp() } else { teardown() }
     }
 }
