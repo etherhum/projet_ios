@@ -12,6 +12,8 @@ final class AppState: ObservableObject {
     @Published private(set) var callPeer: NearbyPeer?
     /// L'utilisateur a demandé la recherche pendant cette session (non persisté, volontairement).
     @Published private(set) var searchRequested = false
+    /// L'utilisateur local a confirmé le code ; en attente de la confirmation du pair (M3-06).
+    @Published private(set) var codeConfirmedLocally = false
     /// Alerte affichée quand le micro est refusé.
     @Published var showMicrophoneDeniedAlert = false
 
@@ -32,15 +34,17 @@ final class AppState: ObservableObject {
          rotationTimer: RotationTimer? = nil,
          rotationInterval: TimeInterval = RotationPolicy.interval,
          callTransport: CallTransport? = nil,
-         callScheduler: DeadlineScheduler? = nil) {
+         callScheduler: DeadlineScheduler? = nil,
+         fakeFingerprint: Bool = AppState.fakeFingerprintRequested) {
         self.discovery = discovery
         self.microphone = microphone
         self.rotationTimer = rotationTimer ?? SystemRotationTimer()
         self.rotationInterval = rotationInterval
         self.myAlias = discovery.localPseudonym.alias
         self.call = CallSession(transport: callTransport ?? (discovery as? CallTransport) ?? NoCallTransport(),
-                                scheduler: callScheduler)
+                                scheduler: callScheduler, fakeFingerprint: fakeFingerprint)
         call.onPhaseChange = { [weak self] phase in self?.callPhaseChanged(phase) }
+        call.onConfirmationChange = { [weak self] confirmed in self?.codeConfirmedLocally = confirmed }
         discovery.onEvent = { [weak self] event in
             guard let self else { return }
             switch event {
@@ -51,6 +55,15 @@ final class AppState: ObservableObject {
             case .lost(let id): self.nearby.remove(id: id)
             }
         }
+    }
+
+    /// Démonstration M3-06 : `-ProximaFakeFingerprint` en DEBUG seulement ; toujours faux en Release.
+    nonisolated static var fakeFingerprintRequested: Bool {
+        #if DEBUG
+        return FingerprintDemo.isEnabled
+        #else
+        return false
+        #endif
     }
 
     /// Un appel est en cours (demande, poignée de main, vérification, actif) : aucune rotation.
@@ -119,6 +132,10 @@ final class AppState: ObservableObject {
     func declineIncomingCall() { call.decline() }
     func confirmCode() { call.confirmCode() }
     func rejectCode() { call.rejectCode() }
+    /// Variante QR (M2-06) : contenu affiché par l'appelant / scanné par l'appelé.
+    var verificationQRPayload: String? { call.verificationQRPayload }
+    var isCaller: Bool { call.verificationQRPayload != nil }
+    func submitScannedQR(_ payload: String) { call.submitScannedQR(payload) }
     func hangUp() { call.hangUp() }
 
     /// Fermeture de l'écran de résultat (refusé, terminé…).
