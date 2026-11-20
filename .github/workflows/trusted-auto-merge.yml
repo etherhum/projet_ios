@@ -1,0 +1,64 @@
+name: Trusted PR auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Numéro de la PR existante à approuver et fusionner
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: trusted-auto-merge-${{ github.event.pull_request.number || inputs.pull_request }}
+  cancel-in-progress: false
+
+jobs:
+  approve-and-merge:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.base.ref == github.event.repository.default_branch &&
+       !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No checkout: PR code is never executed with this write-capable token.
+      - name: Approve trusted author and enable protected auto-merge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+
+          pr=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")
+          if ! jq -e --arg repo "$GH_REPO" --arg base "$DEFAULT_BRANCH" '
+            .state == "open" and (.draft | not) and
+            .base.ref == $base and .head.repo.full_name == $repo
+          ' <<< "$pr" > /dev/null; then
+            echo "Skipped: PR must be open, ready, internal, and target the default branch."
+            exit 0
+          fi
+
+          author=$(jq -r '.user.login' <<< "$pr")
+          permission=$(gh api "repos/$GH_REPO/collaborators/$author/permission" --jq '.permission')
+          case "$permission" in
+            admin|maintain|write) ;;
+            *) echo "Skipped: author $author has no write access."; exit 0 ;;
+          esac
+
+          sha=$(jq -r '.head.sha' <<< "$pr")
+          gh api --method POST "repos/$GH_REPO/pulls/$PR_NUMBER/reviews" \
+            -f event=APPROVE -f commit_id="$sha" \
+            -f body="Approbation automatique : auteur disposant du droit d’écriture. Aucune revue sémantique du code ; les protections et contrôles obligatoires restent applicables."
+          gh pr merge "$PR_NUMBER" --repo "$GH_REPO" \
+            --auto --squash --match-head-commit "$sha"
