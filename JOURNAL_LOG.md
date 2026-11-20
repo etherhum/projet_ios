@@ -225,3 +225,9 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Demande reformulée : « Plusieurs issues du rôle architecte sécurité sont toujours ouvertes : faire ce qui peut l'être. »
 - Réalisé : état des contre-mesures STRIDE après M3 (`docs/M1-07-stride.md`), gabarit de triage (M4-05), checklist des livrables (M5-04), revue de sécurité publiée sur chaque PR crypto fusionnée pour clore M3-13.
 - Reste ouvert : #39, #41, #46, qui attendent les failles de l'audit croisé (M4) et la fin du projet.
+
+## 2026-11-20 — Validation de deux points signalés par le développeur iOS
+
+- Demande reformulée : « Le développeur iOS signale deux points absents de la revue : (1) le pseudonyme ne change plus qu'après un appel réellement établi, alors que M2-03 prévoyait un changement après chaque appel, ce qui touche I1 ; (2) les `info` HKDF contiennent le caractère non ASCII “→”. Les valider et les noter dans la spécification. »
+- Décisions : (1) validé, impact faible sur I1 (fenêtre de corrélation inchangée, 10 min), gain sur D1 ; (2) accepté, octets UTF-8 identiques des deux côtés, test des octets recommandé, ASCII à préférer en cas de passage à `v2`.
+- Fichiers : `docs/M2-03-decouverte-anonyme.md`, `docs/M2-05-echange-cles.md`, `docs/M1-07-stride.md`. Ces deux points manquaient à la revue M3-13 : omission de l'architecte, reconnue.
