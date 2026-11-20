@@ -46,6 +46,10 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Bug trouvé lors de l'essai : `NSBonjourServices` absent de l'Info.plist généré (clé non supportée en build setting), découverte bloquée silencieusement par iOS. Corrigé via `Proxima-Info.plist`.
 - Résultat sur 2 appareils réels (iPhone 17 Pro Max + iPhone 16 Pro Max) : découverte, connexion et message de test reçus — validé par le développeur le 2026-11-20.
 
+## 2026-11-20 — Issues #12 (M2-04) et #17 (M2-09) : rayon, codec et dépendances
+
+- Demande reformulée : « Poursuivre les issues du rôle iOS dans l'ordre. Documenter l'estimation du rayon de proximité compatible avec Multipeer seul (méthode, précision, limites assumées) et choisir le codec audio en privilégiant les API natives Apple, avec la liste justifiée des dépendances. Regrouper ces deux documents dans une seule PR. »
+- Résultat : l'architecte sécurité avait rédigé en parallèle ces deux documents (PR #53), avec les mêmes décisions (rayon = portée Multipeer, pas une frontière de sécurité ; Opus natif, repli AAC-ELD, aucune dépendance). Leur version, plus complète, est conservée ; relue et validée côté iOS.
 ## 2026-11-20 — Issue #20 (M3-01) : squelette de l'app SwiftUI
 
 - Demande reformulée : « Créer le squelette SwiftUI (liste des proches, appel en cours) qui servira de base aux issues M3, le lancer sur les deux iPhones réels ; utiliser un agent pour économiser le contexte. »
