@@ -24,7 +24,7 @@ struct NearbyListView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Label("Proxima utilise le réseau local et le Wi-Fi pair-à-pair pour trouver les iPhones autour de vous.", systemImage: "wifi")
                 Label("Rien ne passe par Internet ni par un serveur.", systemImage: "icloud.slash")
-                Label("Vous apparaissez sous un pseudonyme éphémère, renouvelé à chaque recherche.", systemImage: "theatermasks")
+                Label("Vous apparaissez sous un pseudonyme éphémère, renouvelé toutes les 10 minutes.", systemImage: "theatermasks")
             }
             .font(.callout).foregroundStyle(.secondary)
             Text("iOS va vous demander l'accès au réseau local.")

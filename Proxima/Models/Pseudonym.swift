@@ -7,6 +7,11 @@ struct Pseudonym: Hashable, Sendable {
 
     init(value: String) { self.value = value }
 
+    /// Format attendu d'un pseudonyme reçu : exactement 13 caractères de l'alphabet base32 (A-Z, 2-7).
+    static func isValid(_ value: String) -> Bool {
+        value.utf8.count == 13 && value.utf8.allSatisfy { (65...90).contains($0) || (50...55).contains($0) }
+    }
+
     static func random() -> Pseudonym {
         var rng = SystemRandomNumberGenerator()
         let bytes = (0..<8).map { _ in UInt8.random(in: .min ... .max, using: &rng) }
