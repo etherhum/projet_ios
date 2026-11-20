@@ -137,3 +137,17 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Vérification : tous les tests OK sur iPhone (id 00008140-000E50262E44801C).
 - Écarts : premier paquet accepté si compteur < 1 000 (max_vu initial vu comme −1). Le compteur de rejets « > 20 en 5 s ⇒ fermeture » relève de M3-10.
 - Intégré sur main après M3-05 : conflit `PacketCrypter.open` résolu en gardant les deux contrôles avant tout calcul (rejet AUDIO vide de main, puis `replayWindow.check`) ; tests anti-rejeu inchangés (charge utile non vide). Cohérence avec M3-06 : un paquet rejoué octet pour octet est rejeté par la fenêtre avant `CallSession` (pendant la vérification → `protocolError` comme avant ; en appel actif → ignoré, test M3-06 adapté ; `CryptoTests.testTamperedPacketRejected` accepte le rejet anti-rejeu pour un compteur altéré) ; un second SAS_OK distinct (nouveau compteur) reste refusé par `CallSession`.
+
+## 2026-11-20 — Issue #28 (M3-09) : protection contre le spam d'appels
+
+**Demande (reformulée)** : Limiter le nombre de demandes d'appel par pair et par minute et permettre de bloquer un pseudonyme pour la session, de sorte que 50 demandes en 10 s ne saturent pas l'app ; travailler en parallèle des autres issues M3 via un agent dédié.
+
+**Livrables**
+- `Proxima/Services/CallRequestGate.swift` : fenêtre glissante de 60 s, 3 demandes/pair, 10 demandes toutes sources (menace D1 de M1-07) ; liste de blocage en mémoire (jamais persistée, conservée entre rotations, perdue à la fin du processus) ; horloge monotone injectable ; mémoire bornée (seules les demandes acceptées sont horodatées, plafonds 64 pairs suivis / 128 bloqués, purge à chaque appel).
+- `NearbyService` : gate consultée à la réception d'une invitation Multipeer, refus silencieux ; `block(peer:)` (renommé `block(peerID:)` à l'intégration).
+- `NearbyListView` : balayage « Bloquer pour la session ».
+
+**Tests** : `ProximaTests/SpamTests.swift` (6 tests : 50 demandes/10 s d'un pair → 3 passent en < 50 ms ; 50 pairs → 10 passent ; pair bloqué toujours refusé ; réautorisé après la fenêtre ; mémoire bornée après 10 000 pseudonymes ; mesure de débit). 29 tests verts sur iPhone.
+
+**Limites** : le blocage vise un pseudonyme ; à sa rotation (≤ 10 min) l'attaquant revient sous un nouveau pseudonyme, seule la limite globale le contient alors. Un pair bloqué reste affiché dans la liste. La limite globale peut aussi bloquer des demandes légitimes pendant une inondation (choix assumé : disponibilité de l'app > disponibilité des appels).
+- Intégré sur main après M3-05 : `requestGate.allow(peer:)` reste la première vérification du délégué d'invitation de M3-05 (avant le `Task` et la logique `pendingInvitation`) ; blocage exposé par `PeerDiscovering.block(peerID:)`/`isBlocked(peerID:)` et `AppState.blockPeer(_:)` (plus de cast `as? NearbyService`) ; pair bloqué retiré et masqué de la liste même s'il réapparaît (test `testBlockedPeerHiddenFromList`).

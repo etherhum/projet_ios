@@ -17,6 +17,13 @@ final class NearbyService: NSObject, PeerDiscovering, CallTransport {
     /// garantit qu'aucun pseudonyme, donc aucun MCPeerID, n'est réutilisé.
     private var usedPseudonyms: Set<String> = []
 
+    /// Anti-spam (M3-09) : limite de débit + blocage pour la session, conservé entre rotations.
+    nonisolated let requestGate = CallRequestGate()
+
+    /// Bloque un pair pour la session : ses invitations sont refusées silencieusement.
+    func block(peerID: String) { requestGate.block(peer: peerID) }
+    func isBlocked(peerID: String) -> Bool { requestGate.isBlocked(peer: peerID) }
+
     private var session: MCSession?
     private var advertiser: MCNearbyServiceAdvertiser?
     private var browser: MCNearbyServiceBrowser?
@@ -135,6 +142,9 @@ extension NearbyService: MCNearbyServiceBrowserDelegate {
 
 extension NearbyService: MCNearbyServiceAdvertiserDelegate {
     nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
+        // M3-09 : première vérification, avant tout traitement (Task, invitation en attente…) ;
+        // refus silencieux si le pair est bloqué ou si la limite de débit est atteinte.
+        guard requestGate.allow(peer: peerID.displayName) else { invitationHandler(false, nil); return }
         let name = peerID.displayName
         let context = context ?? Data()
         Task { @MainActor in

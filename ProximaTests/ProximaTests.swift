@@ -49,6 +49,9 @@ final class FakeDiscovery: PeerDiscovering {
     func start() { if !started { localPseudonym = .random(); started = true } }
     func stop() { started = false }
     func rotate() { rotations += 1; stop(); start() }
+    private(set) var blocked: Set<String> = []
+    func block(peerID: String) { blocked.insert(peerID) }
+    func isBlocked(peerID: String) -> Bool { blocked.contains(peerID) }
 }
 
 @MainActor
@@ -99,6 +102,19 @@ final class AppStateTests: XCTestCase {
         state.stopDiscovery()
         state.resumeDiscoveryIfRequested()
         XCTAssertTrue(fake.started)
+    }
+
+    /// M3-09 : « Bloquer pour la session » transmet le blocage à la découverte et masque le pair, même s'il réapparaît.
+    func testBlockedPeerHiddenFromList() {
+        let (state, fake, _) = make()
+        state.userRequestedSearch()
+        let p = NearbyPeer(pseudonym: .random()), q = NearbyPeer(pseudonym: .random())
+        fake.onEvent?(.found(p)); fake.onEvent?(.found(q))
+        state.blockPeer(p)
+        XCTAssertTrue(fake.isBlocked(peerID: p.id))
+        XCTAssertEqual(state.nearby.peers, [q])
+        fake.onEvent?(.found(p))
+        XCTAssertEqual(state.nearby.peers, [q])
     }
 
     func testMicrophoneDeniedOpensNoCall() async {
