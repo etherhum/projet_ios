@@ -4,7 +4,7 @@ import MultipeerConnectivity
 /// Découverte Multipeer (M2-03). Annonce + navigation sous un pseudonyme éphémère ;
 /// AUCUNE connexion automatique : une invitation n'est acceptée qu'après l'action explicite
 /// de l'utilisateur (`answerInvitation(accept: true)`, M3-05). Sert aussi de transport d'appel.
-/// Aucun log : ni pseudonyme ni donnée de proximité ne sont imprimés.
+/// Logs via AppLog uniquement (événements statiques) : ni pseudonyme ni donnée de proximité.
 @MainActor
 final class NearbyService: NSObject, PeerDiscovering, CallTransport {
     static let serviceType = "proxima" // cf. NSBonjourServices dans Proxima-Info.plist
@@ -144,7 +144,11 @@ extension NearbyService: MCNearbyServiceAdvertiserDelegate {
     nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         // M3-09 : première vérification, avant tout traitement (Task, invitation en attente…) ;
         // refus silencieux si le pair est bloqué ou si la limite de débit est atteinte.
-        guard requestGate.allow(peer: peerID.displayName) else { invitationHandler(false, nil); return }
+        guard requestGate.allow(peer: peerID.displayName) else {
+            invitationHandler(false, nil)
+            AppLog.log(requestGate.isBlocked(peer: peerID.displayName) ? .invitationBlocked : .invitationRateLimited)
+            return
+        }
         let name = peerID.displayName
         let context = context ?? Data()
         Task { @MainActor in
@@ -153,6 +157,7 @@ extension NearbyService: MCNearbyServiceAdvertiserDelegate {
             guard advertiser === self.advertiser, self.pendingInvitation == nil, self.callPeer == nil,
                   context.count <= HandshakeMessage.maxByteCount else {
                 invitationHandler(false, nil)
+                AppLog.log(.invitationDeclined)
                 return
             }
             self.pendingInvitation = invitationHandler

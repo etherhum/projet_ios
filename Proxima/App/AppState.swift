@@ -101,6 +101,7 @@ final class AppState: ObservableObject {
         discovering = false
         discovery.stop()
         nearby.removeAll()
+        AppLog.log(.discoveryStopped)
     }
 
     private func startDiscovery() {
@@ -109,12 +110,13 @@ final class AppState: ObservableObject {
         discovery.start() // nouveau pseudonyme à chaque démarrage (retour au premier plan inclus)
         myAlias = discovery.localPseudonym.alias
         rotationTimer.start(interval: rotationInterval) { [weak self] in self?.rotationTick() }
+        AppLog.log(.discoveryStarted)
     }
 
     /// Échéance de la minuterie : rotation, sauf pendant un appel (reportée à la fin de l'appel).
     func rotationTick() {
         guard discovering else { return }
-        if isInCall { rotationPending = true } else { rotatePseudonym() }
+        if isInCall { rotationPending = true; AppLog.log(.rotationDeferredDuringCall) } else { rotatePseudonym() }
     }
 
     private func rotatePseudonym() {
@@ -123,6 +125,7 @@ final class AppState: ObservableObject {
         nearby.removeAll()
         discovery.rotate()
         myAlias = discovery.localPseudonym.alias
+        AppLog.log(.pseudonymRotated)
     }
 
     /// Lancement d'un appel : le micro est demandé ici (premier usage), jamais au lancement.
@@ -139,6 +142,7 @@ final class AppState: ObservableObject {
     func acceptIncomingCall() async {
         guard callPhase == .incomingRequest else { return }
         guard await microphoneGranted() else { call.decline(); return }
+        AppLog.log(.callAccepted)
         call.accept()
     }
 
@@ -147,6 +151,7 @@ final class AppState: ObservableObject {
     /// « Bloquer pour la session » (M3-09) : invitations refusées silencieusement, pair retiré et masqué de la liste.
     func blockPeer(_ peer: NearbyPeer) {
         discovery.block(peerID: peer.id)
+        AppLog.log(.peerBlocked)
         nearby.remove(id: peer.id)
     }
     func confirmCode() { call.confirmCode() }
@@ -166,10 +171,11 @@ final class AppState: ObservableObject {
     private func microphoneGranted() async -> Bool {
         switch microphone.status {
         case .granted: return true
-        case .denied: showMicrophoneDeniedAlert = true; return false
+        case .denied: showMicrophoneDeniedAlert = true; AppLog.log(.microphoneDenied); return false
         case .undetermined:
             if await microphone.request() { return true }
             showMicrophoneDeniedAlert = true
+            AppLog.log(.microphoneDenied)
             return false
         }
     }
@@ -177,10 +183,11 @@ final class AppState: ObservableObject {
     private func callPhaseChanged(_ phase: CallPhase) {
         let wasBusy = callPhase.isBusy
         callPhase = phase
+        if let event = AppLog.Event.forCallPhase(phase) { AppLog.log(event) } // catégorie seulement, jamais le code ni le pair
         // M3-11 : la session est enregistrée auprès du janitor dès le début d'un appel (paire éphémère puis clés) ;
         // toute fin d'appel (local, distant, refus, échec, perte du pair) passe ici → `callDidEnd()`.
         if !wasBusy, phase.isBusy { janitor.register(call) }
-        if wasBusy, !phase.isBusy { janitor.callDidEnd() }
+        if wasBusy, !phase.isBusy { janitor.callDidEnd(); AppLog.log(.secretsWiped) }
         if let id = call.peerID { callPeer = NearbyPeer(pseudonym: Pseudonym(value: id)) }
         if phase == .idle { callPeer = nil }
         // Fin d'appel : nouveau pseudonyme (M2-03), que la rotation ait été reportée ou non.

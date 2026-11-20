@@ -2,7 +2,7 @@ import Foundation
 
 /// Protection contre le spam de demandes d'appel (M3-09, menace D1 de M1-07).
 ///
-/// Consultée AVANT tout traitement d'une invitation Multipeer. Refus silencieux (ni UI ni log).
+/// Consultée AVANT tout traitement d'une invitation Multipeer. Refus silencieux côté pair (aucune UI) ; seul un événement statique AppLog, sans pseudonyme, est journalisé (M3-12).
 /// - Limite par pair : `perPeerLimit` demandes acceptées par fenêtre glissante de `window` secondes.
 /// - Limite globale : `globalLimit` demandes acceptées par fenêtre, toutes sources confondues
 ///   (un attaquant peut inventer autant de pseudonymes qu'il veut, cf. M2-03).
