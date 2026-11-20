@@ -1,0 +1,354 @@
+import Foundation
+
+/// Raison d'un échec (sans détail technique transmis au pair : pas d'oracle, M2-07).
+enum CallFailure: Equatable {
+    /// Appelant : l'appelé a refusé ou n'a pas répondu (Multipeer ne distingue pas les deux).
+    case declinedOrNoAnswer
+    /// Délai de poignée de main ou de vérification dépassé (30 s, M2-05 / M2-06).
+    case timeout
+    /// Message inattendu, mal formé, engagement faux, paquet non authentique.
+    case protocolError
+    /// Codes déclarés différents (M2-06).
+    case codeMismatch
+    /// Connexion perdue avant la fin.
+    case disconnected
+}
+
+enum CallEnd: Equatable {
+    case localHangUp
+    case remoteHangUp
+    /// Appelé : l'utilisateur a refusé la demande.
+    case declined
+}
+
+/// États explicites d'une session d'appel (M3-05).
+enum CallPhase: Equatable {
+    case idle
+    /// Appelant : COMMIT envoyé dans l'invitation, en attente de l'acceptation.
+    case outgoingRequest
+    /// Appelé : demande reçue, en attente de l'action explicite de l'utilisateur. Aucune clé.
+    case incomingRequest
+    /// Échange HELLO / REVEAL en cours.
+    case handshaking
+    /// Clés établies, code de vérification affiché (comparaison humaine M2-06 / M3-06).
+    case verifying(code: String)
+    /// Codes confirmés des deux côtés (SAS_OK local envoyé ET distant reçu). Audio : M3-07.
+    case active(code: String)
+    case failed(CallFailure)
+    case ended(CallEnd)
+
+    var isBusy: Bool {
+        switch self {
+        case .idle, .failed, .ended: return false
+        default: return true
+        }
+    }
+}
+
+/// Machine à états d'une session d'appel, indépendante de Multipeer (testable avec un transport en mémoire).
+///
+/// Appelant (I) : `call` → paire éphémère + COMMIT (dans l'invitation) → `outgoingRequest`
+///   → connexion → `handshaking` → HELLO reçu → REVEAL envoyé, dérivation → `verifying`.
+/// Appelé (R) : invitation (COMMIT) → `incomingRequest` (aucune clé) → `accept()` explicite
+///   → paire éphémère → connexion → HELLO envoyé → REVEAL reçu, engagement vérifié, dérivation → `verifying`.
+/// Refus, délai, message inattendu, déconnexion : `failed`/`ended`, toutes les clés détruites.
+/// Aucun log (ni pseudonyme, ni clé, ni code).
+@MainActor
+final class CallSession {
+    /// Délai de chaque étape (demande, poignée de main, vérification) : 30 s (M2-05, M2-06).
+    static let stepTimeout: TimeInterval = 30
+    static let requestTimeout: TimeInterval = stepTimeout
+
+    private(set) var phase: CallPhase = .idle {
+        didSet { if phase != oldValue { onPhaseChange?(phase) } }
+    }
+    /// Pseudonyme du pair de l'appel en cours (affiché via son alias).
+    private(set) var peerID: String?
+    var onPhaseChange: ((CallPhase) -> Void)?
+
+    private let transport: CallTransport
+    private let scheduler: DeadlineScheduler
+    private let clock: () -> TimeInterval
+
+    // Matériel de session : tout est remis à nil par `teardown()`.
+    private var role: HandshakeRole?
+    private(set) var keyPair: EphemeralKeyPair?
+    private var ownNonce: Data?
+    private var commitment: Data?
+    private(set) var crypter: PacketCrypter?
+    private var helloSent = false
+    private var localCodeConfirmed = false
+    private var remoteCodeConfirmed = false
+    private var deadline: DeadlineToken?
+    private var sessionStart: TimeInterval = 0
+
+    /// Indique si un matériel de clé (paire éphémère ou clés de session) est encore détenu.
+    var holdsKeyMaterial: Bool { keyPair != nil || crypter != nil }
+
+    init(transport: CallTransport,
+         scheduler: DeadlineScheduler? = nil,
+         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.transport = transport
+        self.scheduler = scheduler ?? SystemDeadlineScheduler()
+        self.clock = clock
+        transport.onCallEvent = { [weak self] event in self?.handle(event) }
+    }
+
+    // MARK: Actions de l'utilisateur
+
+    /// Appelant : envoie la demande d'appel (COMMIT dans le contexte de l'invitation).
+    func call(peerID: String) {
+        guard !phase.isBusy else { return }
+        reset()
+        let pair = EphemeralKeyPair()
+        let nonce = Handshake.randomNonce()
+        guard let c = try? Handshake.commitment(publicKeyX963: pair.publicKeyX963, nonce: nonce) else {
+            pair.destroy(); phase = .failed(.protocolError); return
+        }
+        self.peerID = peerID
+        role = .initiator
+        keyPair = pair
+        ownNonce = nonce
+        commitment = c
+        phase = .outgoingRequest
+        armDeadline(failure: .declinedOrNoAnswer)
+        transport.invite(peerID: peerID, context: HandshakeMessage.commit(commitment: c).bytes)
+    }
+
+    /// Appelé : acceptation explicite. La paire éphémère n'est créée qu'ici.
+    func accept() {
+        guard phase == .incomingRequest else { return }
+        role = .responder
+        keyPair = EphemeralKeyPair()
+        ownNonce = Handshake.randomNonce()
+        phase = .handshaking
+        armDeadline(failure: .timeout)
+        transport.answerInvitation(accept: true)
+    }
+
+    /// Appelé : refus explicite. Aucune clé n'a été générée.
+    func decline() {
+        guard phase == .incomingRequest else { return }
+        transport.answerInvitation(accept: false)
+        finish(.ended(.declined))
+    }
+
+    /// « Les codes correspondent » : envoie SAS_OK chiffré (M2-06). Actif quand les deux côtés ont confirmé.
+    func confirmCode() {
+        guard case .verifying = phase, !localCodeConfirmed else { return }
+        guard sendControl(.sasOK) else { return fail(.protocolError) }
+        localCodeConfirmed = true
+        activateIfConfirmed()
+    }
+
+    /// « Les codes ne correspondent pas » : fermeture immédiate, clés effacées (M2-06).
+    func rejectCode() {
+        guard case .verifying = phase else { return }
+        _ = sendControl(.hangUp)
+        transport.disconnect()
+        finish(.failed(.codeMismatch))
+    }
+
+    /// Raccrocher / annuler, à toute étape.
+    func hangUp() {
+        switch phase {
+        case .incomingRequest:
+            decline()
+        case .outgoingRequest, .handshaking, .verifying, .active:
+            _ = sendControl(.hangUp)
+            transport.disconnect()
+            finish(.ended(.localHangUp))
+        case .idle, .failed, .ended:
+            break
+        }
+    }
+
+    /// Retour à `idle` après affichage du résultat.
+    func reset() {
+        guard !phase.isBusy else { return }
+        teardown()
+        peerID = nil
+        phase = .idle
+    }
+
+    // MARK: Événements du transport (entrée NON fiable)
+
+    private func handle(_ event: CallTransportEvent) {
+        switch event {
+        case .invitation(let from, let context):
+            handleInvitation(from: from, context: context)
+        case .connected:
+            if phase == .outgoingRequest {
+                phase = .handshaking
+                armDeadline(failure: .timeout)
+            } else if phase == .handshaking, role == .responder, !helloSent {
+                sendHello()
+            }
+        case .disconnected:
+            switch phase {
+            case .outgoingRequest: finish(.failed(.declinedOrNoAnswer))
+            case .incomingRequest: finish(.failed(.disconnected))
+            case .handshaking, .verifying, .active: finish(.failed(.disconnected))
+            case .idle, .failed, .ended: break
+            }
+        case .received(let data):
+            handleData(data)
+        }
+    }
+
+    private func handleInvitation(from: String, context: Data) {
+        // Une seule session à la fois : toute demande pendant un appel est refusée automatiquement.
+        guard !phase.isBusy,
+              Pseudonym.isValid(from),
+              case .commit(let c)? = HandshakeMessage.decode(context) else {
+            transport.answerInvitation(accept: false)
+            return
+        }
+        reset()
+        peerID = from
+        commitment = c
+        phase = .incomingRequest
+        armDeadline(failure: nil) // sans réponse en 30 s : refus (défaut de réponse = refus)
+    }
+
+    private func handleData(_ data: Data) {
+        guard data.count <= CryptoConstants.maxPacketByteCount else { return fail(.protocolError) }
+        switch phase {
+        case .handshaking:
+            guard let message = HandshakeMessage.decode(data) else { return fail(.protocolError) }
+            handleHandshake(message)
+        case .outgoingRequest:
+            // Le HELLO peut précéder la notification de connexion.
+            guard let message = HandshakeMessage.decode(data), case .hello = message else { return fail(.protocolError) }
+            phase = .handshaking
+            handleHandshake(message)
+        case .verifying, .active:
+            handlePacket(data)
+        case .idle, .incomingRequest, .failed, .ended:
+            break // rien n'est attendu : ignoré (aucune connexion acceptée avant `accept()`)
+        }
+    }
+
+    private func handleHandshake(_ message: HandshakeMessage) {
+        guard let pair = keyPair, let ownNonce, let commitment, let role else { return fail(.protocolError) }
+        do {
+            switch (role, message) {
+            case (.initiator, .hello(let pkR, let nonceR)):
+                let peerKey = try PeerPublicKey(x963Representation: pkR)
+                guard nonceR.count == CryptoConstants.handshakeNonceByteCount else { throw CryptoError.invalidHandshakeNonce }
+                let t = try Handshake.transcript(commitment: commitment, responderPublicKeyX963: pkR, responderNonce: nonceR,
+                                                 initiatorPublicKeyX963: pair.publicKeyX963, initiatorNonce: ownNonce)
+                transport.send(HandshakeMessage.reveal(publicKey: pair.publicKeyX963, nonce: ownNonce).bytes)
+                try establish(pair.deriveSessionKeys(role: .initiator, peerPublicKey: peerKey, transcript: t))
+            case (.responder, .reveal(let pkI, let nonceI)) where helloSent:
+                try Handshake.verifyCommitment(commitment, publicKeyX963: pkI, nonce: nonceI)
+                let peerKey = try PeerPublicKey(x963Representation: pkI)
+                let t = try Handshake.transcript(commitment: commitment, responderPublicKeyX963: pair.publicKeyX963,
+                                                 responderNonce: ownNonce, initiatorPublicKeyX963: pkI, initiatorNonce: nonceI)
+                try establish(pair.deriveSessionKeys(role: .responder, peerPublicKey: peerKey, transcript: t))
+            default:
+                fail(.protocolError) // hors séquence (ex. 2ᵉ COMMIT, REVEAL avant HELLO, HELLO reçu par R)
+            }
+        } catch {
+            fail(.protocolError)
+        }
+    }
+
+    private func sendHello() {
+        guard let pair = keyPair, let ownNonce else { return fail(.protocolError) }
+        helloSent = true
+        transport.send(HandshakeMessage.hello(publicKey: pair.publicKeyX963, nonce: ownNonce).bytes)
+    }
+
+    private func establish(_ keys: SessionKeys) throws {
+        // La clé privée est consommée par la dérivation ; on lâche aussi l'objet.
+        keyPair = nil
+        ownNonce = nil
+        let code = try keys.verificationCode()
+        crypter = PacketCrypter(keys: keys)
+        sessionStart = clock()
+        phase = .verifying(code: code)
+        armDeadline(failure: .timeout) // comparaison des codes : 30 s (M2-06)
+    }
+
+    private func handlePacket(_ data: Data) {
+        guard let crypter else { return fail(.protocolError) }
+        let opened: OpenedPacket
+        do {
+            opened = try crypter.open(data)
+        } catch {
+            // Tag invalide pendant la vérification : fermeture (M2-07). En appel actif : ignoré (compteur d'erreurs M3-08).
+            if case .verifying = phase { fail(.protocolError) }
+            return
+        }
+        guard opened.header.type == .control, let code = opened.plaintext.first.flatMap(ControlCode.init) else {
+            return // AUDIO : M3-07 ; anti-rejeu : M3-08
+        }
+        switch code {
+        case .hangUp:
+            transport.disconnect()
+            finish(.ended(.remoteHangUp))
+        case .sasOK:
+            guard case .verifying = phase else { return }
+            remoteCodeConfirmed = true
+            activateIfConfirmed()
+        }
+    }
+
+    private func activateIfConfirmed() {
+        guard case .verifying(let code) = phase, localCodeConfirmed, remoteCodeConfirmed else { return }
+        deadline?.cancel(); deadline = nil
+        phase = .active(code: code)
+    }
+
+    @discardableResult
+    private func sendControl(_ code: ControlCode) -> Bool {
+        guard let crypter else { return false }
+        let elapsed = max(0, clock() - sessionStart) * 1000
+        let ts = UInt32(min(elapsed, Double(UInt32.max)))
+        guard let packet = try? crypter.seal(Data([code.rawValue]), type: .control, timestampMs: ts) else { return false }
+        transport.send(packet)
+        return true
+    }
+
+    // MARK: Délais et fin
+
+    /// `failure == nil` : délai de la demande entrante (refus automatique).
+    private func armDeadline(failure: CallFailure?) {
+        deadline?.cancel()
+        deadline = scheduler.schedule(after: Self.stepTimeout) { [weak self] in
+            guard let self else { return }
+            if let failure {
+                self.transport.disconnect()
+                self.finish(.failed(failure))
+            } else if self.phase == .incomingRequest {
+                self.transport.answerInvitation(accept: false)
+                self.finish(.failed(.timeout))
+            }
+        }
+    }
+
+    private func fail(_ failure: CallFailure) {
+        guard phase.isBusy else { return }
+        transport.disconnect()
+        finish(.failed(failure))
+    }
+
+    private func finish(_ terminal: CallPhase) {
+        teardown()
+        phase = terminal
+    }
+
+    /// Détruit toutes les clés et oublie l'état de poignée de main.
+    private func teardown() {
+        deadline?.cancel(); deadline = nil
+        keyPair?.destroy(); keyPair = nil
+        crypter?.destroy(); crypter = nil
+        ownNonce = nil
+        commitment = nil
+        role = nil
+        helloSent = false
+        localCodeConfirmed = false
+        remoteCodeConfirmed = false
+    }
+}

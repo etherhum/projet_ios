@@ -7,8 +7,9 @@ struct RootView: View {
 
     var body: some View {
         NearbyListView()
-            .fullScreenCover(item: $appState.activeCall) { peer in
-                CallView(peer: peer, onHangUp: appState.hangUp)
+            .fullScreenCover(isPresented: Binding(get: { appState.showCallScreen },
+                                                  set: { if !$0 { appState.dismissCall() } })) {
+                CallView().environmentObject(appState)
             }
             .alert("Micro désactivé", isPresented: $appState.showMicrophoneDeniedAlert) {
                 Button("Ouvrir les Réglages") {
