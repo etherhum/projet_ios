@@ -23,3 +23,11 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Tentative d’approbation : `gh pr review 49 --approve` refusé par GitHub avec « Review Can not approve your own pull request ». Le compte disponible, `etherhum`, est l’auteur de la PR.
 - Tentative de fusion : `PUT /repos/etherhum/projet_ios/pulls/49/merge` sur le commit `29ed85c`, refusé avec HTTP `405` : « At least 1 approving review is required by reviewers with write access. »
 - Blocage : un autre membre avec droit d’écriture doit approuver la PR. La fusion n’a pas eu lieu et l’issue reste ouverte ; `Closes #1` assurera sa clôture lors de la fusion.
+
+## 2026-11-20 — Rôle architecte sécurité : issues M1 et M2
+
+- Demande reformulée : « En tant qu'architecte sécurité du groupe, lire `Projet M2.pdf` puis traiter les issues portant le label “rôle: Architecte sécurité” du dépôt GitHub `etherhum/projet_ios`. »
+- Périmètre traité (livrables rédactionnels, sans code) : M1-05 (#4), M1-06 (#5), M1-07 (#6), M1-08 (#7), M2-03 (#11), M2-04 (#12), M2-05 (#13), M2-06 (#14), M2-07 (#15), M2-08 (#16), M2-09 (#17), M2-10 (#18), dans `docs/`. M2-01 (#9) est déjà en PR #50.
+- Non traité : issues M3 à M5 (#23, #29, #32, #39, #41, #46), qui dépendent du code, d'un audit ou de jalons ultérieurs.
+- Choix signalés : le rayon (M2-04) n'utilise pas le RSSI car Multipeer ne l'expose pas ; aucune clé d'identité Secure Enclave (M2-08) pour préserver l'anonymat ; code de vérification à 6 chiffres avec engagement préalable (M2-05/06).
+- Relecture : contenu généré par IA, à relire par l'équipe (et le point codec Opus à confirmer par prototype).
