@@ -90,13 +90,14 @@ final class AppState: ObservableObject {
     // TODO M3-05 : envoyer une demande d'appel, attendre l'acceptation explicite du pair.
     // TODO M3-07 : démarrer l'audio chiffré une fois la poignée de main (M2-05) terminée.
     func requestCall(with peer: NearbyPeer) async {
+        guard activeCall == nil else { return } // double tap / appel déjà en cours : un seul appel
         switch microphone.status {
         case .granted:
             activeCall = peer
         case .denied:
             showMicrophoneDeniedAlert = true
         case .undetermined:
-            if await microphone.request() {
+            if await microphone.request(), activeCall == nil {
                 activeCall = peer
             } else {
                 showMicrophoneDeniedAlert = true

@@ -250,19 +250,5 @@ final class RotationTests: XCTestCase {
         d.onEvent?(.lost(id: p.id))
         XCTAssertTrue(state.nearby.peers.isEmpty)
     }
-
-    func testNoDeviceIdentityAPIsInSources() throws {
-        // Revue de code automatisée (M2-03, preuve 1) : aucune API d'identité de l'appareil.
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Proxima")
-        guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { throw XCTSkip("sources indisponibles sur l'appareil") }
-        var count = 0
-        for case let url as URL in e where url.pathExtension == "swift" {
-            guard let src = try? String(contentsOf: url) else { continue }
-            count += 1
-            for banned in ["UIDevice", "identifierForVendor", "hostName", "UserDefaults", "print(", "NSLog", "os_log", "Logger("] {
-                XCTAssertFalse(src.contains(banned), "\(banned) dans \(url.lastPathComponent)")
-            }
-        }
-        if count == 0 { throw XCTSkip("sources indisponibles sur l'appareil") }
-    }
+    // Scan des API interdites : scripts/check-forbidden-apis.sh (les sources ne sont pas accessibles sur l'appareil).
 }
