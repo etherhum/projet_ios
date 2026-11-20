@@ -32,7 +32,8 @@ enum CallPhase: Equatable {
     case handshaking
     /// Clés établies, code de vérification affiché (comparaison humaine M2-06 / M3-06).
     case verifying(code: String)
-    /// Codes confirmés des deux côtés (SAS_OK local envoyé ET distant reçu). Audio : M3-07.
+    /// Codes confirmés des deux côtés (SAS_OK local envoyé ET distant reçu). Seul état où l'audio
+    /// est autorisé (`CallSession.canExchangeAudio`, M2-06 : rien avant la confirmation des deux côtés).
     case active(code: String)
     case failed(CallFailure)
     case ended(CallEnd)
@@ -77,17 +78,39 @@ final class CallSession {
     private var commitment: Data?
     private(set) var crypter: PacketCrypter?
     private var helloSent = false
-    private var localCodeConfirmed = false
+    /// L'utilisateur local a confirmé le code (SAS_OK envoyé) ; on attend celui du pair.
+    private(set) var localCodeConfirmed = false {
+        didSet { if localCodeConfirmed != oldValue { onConfirmationChange?(localCodeConfirmed) } }
+    }
+    var onConfirmationChange: ((Bool) -> Void)?
     private var remoteCodeConfirmed = false
+    /// DEBUG uniquement (`-ProximaFakeFingerprint`) : empreinte affichée volontairement fausse (M3-06).
+    private let fakeFingerprint: Bool
     private var deadline: DeadlineToken?
     private var sessionStart: TimeInterval = 0
 
     /// Indique si un matériel de clé (paire éphémère ou clés de session) est encore détenu.
     var holdsKeyMaterial: Bool { keyPair != nil || crypter != nil }
 
+    /// Garde explicite pour l'audio (M3-07) : vrai seulement en `active`, c'est-à-dire après
+    /// SAS_OK local envoyé ET SAS_OK distant reçu. Micro et lecture interdits sinon (M2-06).
+    var canExchangeAudio: Bool {
+        if case .active = phase, crypter != nil { return true }
+        return false
+    }
+
+    /// Variante QR (M2-06), côté appelant pendant la vérification : `v ‖ C` en hexadécimal.
+    var verificationQRPayload: String? {
+        guard case .verifying = phase, role == .initiator, let c = displayedCommitment else { return nil }
+        return VerificationQR.payload(commitment: c)
+    }
+
+    /// `fakeFingerprint` n'a d'effet qu'en DEBUG (démonstration d'une empreinte fausse).
     init(transport: CallTransport,
          scheduler: DeadlineScheduler? = nil,
-         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         fakeFingerprint: Bool = false) {
+        self.fakeFingerprint = fakeFingerprint
         self.transport = transport
         self.scheduler = scheduler ?? SystemDeadlineScheduler()
         self.clock = clock
@@ -139,6 +162,18 @@ final class CallSession {
         guard sendControl(.sasOK) else { return fail(.protocolError) }
         localCodeConfirmed = true
         activateIfConfirmed()
+    }
+
+    /// Variante QR (M2-06), côté appelé : compare C scanné (hors bande) à C reçu par radio.
+    /// Identique → équivaut à « Les codes correspondent » ; différent ou illisible → échec `codeMismatch`.
+    func submitScannedQR(_ payload: String) {
+        guard case .verifying = phase, role == .responder, let expected = displayedCommitment else { return }
+        guard let scanned = VerificationQR.commitment(fromPayload: payload),
+              scanned.count == expected.count,
+              Handshake.constantTimeEquals(scanned, expected) else {
+            return rejectCode()
+        }
+        confirmCode()
     }
 
     /// « Les codes ne correspondent pas » : fermeture immédiate, clés effacées (M2-06).
@@ -264,7 +299,10 @@ final class CallSession {
         // La clé privée est consommée par la dérivation ; on lâche aussi l'objet.
         keyPair = nil
         ownNonce = nil
-        let code = try keys.verificationCode()
+        var code = try keys.verificationCode()
+        #if DEBUG
+        if fakeFingerprint { code = FingerprintDemo.alter(code: code) }
+        #endif
         crypter = PacketCrypter(keys: keys)
         sessionStart = clock()
         phase = .verifying(code: code)
@@ -289,14 +327,17 @@ final class CallSession {
             transport.disconnect()
             finish(.ended(.remoteHangUp))
         case .sasOK:
-            guard case .verifying = phase else { return }
+            // Un seul SAS_OK par session, et seulement pendant la vérification : un doublon (rejeu)
+            // ou un SAS_OK en appel actif est une violation du protocole → fermeture (M3-06).
+            guard case .verifying = phase, !remoteCodeConfirmed else { return fail(.protocolError) }
             remoteCodeConfirmed = true
             activateIfConfirmed()
         }
     }
 
+    /// Seule transition vers `active` (garde explicite : les deux confirmations sont requises).
     private func activateIfConfirmed() {
-        guard case .verifying(let code) = phase, localCodeConfirmed, remoteCodeConfirmed else { return }
+        guard case .verifying(let code) = phase, localCodeConfirmed, remoteCodeConfirmed, crypter != nil else { return }
         deadline?.cancel(); deadline = nil
         phase = .active(code: code)
     }
@@ -309,6 +350,15 @@ final class CallSession {
         guard let packet = try? crypter.seal(Data([code.rawValue]), type: .control, timestampMs: ts) else { return false }
         transport.send(packet)
         return true
+    }
+
+    /// Engagement C tel qu'affiché / attendu localement (altéré en démonstration DEBUG).
+    private var displayedCommitment: Data? {
+        guard let commitment else { return nil }
+        #if DEBUG
+        if fakeFingerprint { return FingerprintDemo.alter(commitment: commitment) }
+        #endif
+        return commitment
     }
 
     // MARK: Délais et fin
