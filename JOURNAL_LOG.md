@@ -45,3 +45,12 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Vérification locale : `xcodebuild build-for-testing` OK. Simulateur indisponible sur le Mac (runtime iOS non installé) : tests unitaires à lancer depuis Xcode sur iPhone.
 - Bug trouvé lors de l'essai : `NSBonjourServices` absent de l'Info.plist généré (clé non supportée en build setting), découverte bloquée silencieusement par iOS. Corrigé via `Proxima-Info.plist`.
 - Résultat sur 2 appareils réels (iPhone 17 Pro Max + iPhone 16 Pro Max) : découverte, connexion et message de test reçus — validé par le développeur le 2026-11-20.
+
+## 2026-11-20 — Issue #20 (M3-01) : squelette de l'app SwiftUI
+
+- Demande reformulée : « Créer le squelette SwiftUI (liste des proches, appel en cours) qui servira de base aux issues M3, le lancer sur les deux iPhones réels ; utiliser un agent pour économiser le contexte. »
+- Architecture : `App/` (`ProximaApp`, `AppState` état racine, `RootView`), `Features/NearbyList/NearbyListView`, `Features/Call/CallView` (alias du pair, durée, micro coupé, raccrocher), `Models/` (`Pseudonym`, `NearbyPeerList`), `Services/` (protocole `PeerDiscovering`, `NearbyService` Multipeer). Prototype M2-02 supprimé.
+- Conformité M2-03 : pseudonyme = 8 octets CSPRNG en base32 (13 car.), régénéré à chaque démarrage de la découverte, jamais persisté ; `discoveryInfo = ["v": "1"]` ; alias lisible dérivé localement (« Renard-XYZ »). Écart : `serviceType` reste `proxima` (déjà déclaré dans l'Info.plist) au lieu de l'exemple `proxcall`. Rotation 10 min laissée en TODO M3-03.
+- Comportement : découverte au premier plan seulement (arrêt en arrière-plan), liste mise à jour via foundPeer/lostPeer, aucune connexion automatique, invitations entrantes refusées. Taper un pair ouvre l'écran d'appel en maquette (aucun audio, aucune crypto ; TODO M3-05/M3-07). Aucun log de pseudonyme.
+- Permission : aucune demande explicite, mais le démarrage de la découverte Multipeer au lancement déclenche la popup système « Réseau local » (M3-02 prévoira un écran d'explication avant).
+- Vérification : `build-for-testing` OK ; 8 tests unitaires OK sur iPhone 17 Pro Max. App installée et lancée sur l'iPhone 17 Pro Max ; le second iPhone était « unavailable » (verrouillé/déconnecté) au moment de l'installation, à refaire.
