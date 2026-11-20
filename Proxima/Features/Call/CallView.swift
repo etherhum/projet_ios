@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Écran d'appel piloté par la session (M3-05) : demande sortante, appel entrant
-/// (Accepter / Refuser), poignée de main, code de vérification, résultat. Pas d'audio (M3-07).
+/// (Accepter / Refuser), poignée de main, code de vérification, résultat. Audio chiffré en appel actif (M3-07).
 struct CallView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showQR = false
@@ -59,7 +59,7 @@ struct CallView: View {
         case .active(let code):
             codeView(code)
             Label("Codes confirmés des deux côtés", systemImage: "checkmark.shield.fill").foregroundStyle(.green)
-            Text("Audio à venir (M3-07)").font(.footnote).foregroundStyle(.orange)
+            AudioControlsView(audio: appState.audio)
         case .failed(let failure):
             Text(Self.message(for: failure)).font(.title3).multilineTextAlignment(.center)
         case .ended(let end):
