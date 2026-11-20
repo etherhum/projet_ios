@@ -15,6 +15,8 @@ enum CryptoError: Error, Equatable {
     case counterExhausted
     /// Paquet hors bornes de taille, version ou type inconnus (M2-07, règles 1-2).
     case malformedPacket
+    /// Texte clair AUDIO vide (refusé à l'émission ; à la réception : `malformedPacket`).
+    case emptyPayload
     /// Texte clair trop grand pour tenir dans un paquet de 1 200 octets.
     case plaintextTooLarge
     /// Échec d'authentification AES-GCM (tag, AAD, nonce, clé).

@@ -29,9 +29,11 @@ final class SessionKeys {
         }
     }
 
-    var isDestroyed: Bool { sendKey == nil }
+    var isDestroyed: Bool { sendKey == nil && receiveKey == nil && sasValue == nil }
 
-    /// Oublie les clés et le code (fin d'appel, erreur, M3-10).
+    /// Oublie les clés et le code (fin d'appel, erreur, M3-10). Seules références : ces trois
+    /// propriétés (le secret ECDH et le transcript ne sont pas conservés : ils ne vivent que
+    /// pendant `init`, la fonction locale `expand` n'est pas stockée).
     func destroy() {
         sendKey = nil
         receiveKey = nil

@@ -96,7 +96,7 @@ final class CryptoTests: XCTestCase {
         XCTAssertEqual(o.header, PacketHeader(type: .audio, counter: 0, timestampMs: 1234))
         let back = try cr.seal(Data([ControlCode.sasOK.rawValue]), type: .control, timestampMs: 5)
         XCTAssertEqual(try ci.open(back).plaintext, Data([0x01]))
-        XCTAssertEqual(try cr.open(try ci.seal(Data(), type: .audio, timestampMs: 0)).plaintext, Data())
+        XCTAssertEqual(try cr.open(try ci.seal(Data([0x7F]), type: .audio, timestampMs: 0)).plaintext, Data([0x7F])) // 1 o minimum
     }
 
     func testTamperedPacketRejected() throws {
@@ -185,6 +185,56 @@ final class CryptoTests: XCTestCase {
         XCTAssertThrowsError(try kp.deriveSessionKeys(role: .responder, peerPublicKey: PeerPublicKey(x963Representation: EphemeralKeyPair().publicKeyX963), transcript: Data())) {
             XCTAssertEqual($0 as? CryptoError, .keyDestroyed)
         }
+    }
+
+    func testEmptyAudioPayloadRejected() throws {
+        let (i, r) = try handshake()
+        let ci = PacketCrypter(keys: i), cr = PacketCrypter(keys: r)
+        XCTAssertThrowsError(try ci.seal(Data(), type: .audio, timestampMs: 0)) {
+            XCTAssertEqual($0 as? CryptoError, .emptyPayload)
+        }
+        XCTAssertEqual(ci.nextSendCounter, 0) // aucun nonce consommé
+        // Paquet AUDIO vide mais authentique (forgé avec la vraie clé) : rejeté à la réception.
+        let header = PacketHeader(type: .audio, counter: 0, timestampMs: 0)
+        let box = try AES.GCM.seal(Data(), using: try i.currentSendKey(),
+                                   nonce: try AES.GCM.Nonce(data: PacketHeader.nonce(counter: 0)),
+                                   authenticating: header.bytes)
+        XCTAssertThrowsError(try cr.open(header.bytes + box.ciphertext + box.tag)) {
+            XCTAssertEqual($0 as? CryptoError, .malformedPacket)
+        }
+        // CONTROL reste conforme à M2-07 : exactement 1 octet de code.
+        XCTAssertThrowsError(try ci.seal(Data(), type: .control, timestampMs: 0)) {
+            XCTAssertEqual($0 as? CryptoError, .invalidControlCode)
+        }
+        let ok = try cr.open(try ci.seal(Data([ControlCode.hangUp.rawValue]), type: .control, timestampMs: 0))
+        XCTAssertEqual(ok.plaintext, Data([0x02]))
+    }
+
+    func testEveryOperationFailsAfterDestroy() throws {
+        let (i, r) = try handshake()
+        let ci = PacketCrypter(keys: i), cr = PacketCrypter(keys: r)
+        let p = try ci.seal(msg, type: .audio, timestampMs: 0)
+        ci.destroy(); cr.destroy()
+        for keys in [i, r] {
+            XCTAssertTrue(keys.isDestroyed)
+            XCTAssertThrowsError(try keys.currentSendKey()) { XCTAssertEqual($0 as? CryptoError, .keyDestroyed) }
+            XCTAssertThrowsError(try keys.currentReceiveKey()) { XCTAssertEqual($0 as? CryptoError, .keyDestroyed) }
+            XCTAssertThrowsError(try keys.verificationCode()) { XCTAssertEqual($0 as? CryptoError, .keyDestroyed) }
+        }
+        XCTAssertThrowsError(try ci.seal(Data([1]), type: .control, timestampMs: 0)) { XCTAssertEqual($0 as? CryptoError, .keyDestroyed) }
+        XCTAssertThrowsError(try cr.open(p)) { XCTAssertEqual($0 as? CryptoError, .keyDestroyed) }
+        // Clé éphémère : consommée par la dérivation, puis plus utilisable ; l'objet est libéré.
+        weak var weakPair: EphemeralKeyPair?
+        try {
+            let kp = EphemeralKeyPair(); weakPair = kp
+            let peer = try PeerPublicKey(x963Representation: EphemeralKeyPair().publicKeyX963)
+            _ = try kp.deriveSessionKeys(role: .initiator, peerPublicKey: peer, transcript: Data(count: 32))
+            XCTAssertTrue(kp.isDestroyed)
+            XCTAssertThrowsError(try kp.deriveSessionKeys(role: .initiator, peerPublicKey: peer, transcript: Data(count: 32))) {
+                XCTAssertEqual($0 as? CryptoError, .keyDestroyed)
+            }
+        }()
+        XCTAssertNil(weakPair, "aucune référence ne doit retenir la paire éphémère")
     }
 
     // MARK: Vecteur fixe (format, pas de vecteur fourni par la spec)

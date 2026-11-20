@@ -70,6 +70,7 @@ final class PacketCrypter {
         let key = try keys.currentSendKey()
         guard plaintext.count <= CryptoConstants.maxPlaintextByteCount else { throw CryptoError.plaintextTooLarge }
         if type == .control { try Self.validateControl(plaintext) }
+        if type == .audio, plaintext.isEmpty { throw CryptoError.emptyPayload }
         guard nextSendCounter < CryptoConstants.maxPacketCounter else { throw CryptoError.counterExhausted }
         let header = PacketHeader(type: type, counter: nextSendCounter, timestampMs: timestampMs)
         let aad = header.bytes
@@ -87,6 +88,10 @@ final class PacketCrypter {
     func open(_ packet: Data) throws -> OpenedPacket {
         let key = try keys.currentReceiveKey()
         let header = try PacketHeader.parse(packet)
+        // AUDIO vide (N = 30 o) : rejeté avant déchiffrement. CONTROL : 1 o exactement (M2-07).
+        if header.type == .audio, packet.count <= CryptoConstants.headerByteCount + CryptoConstants.tagByteCount {
+            throw CryptoError.malformedPacket
+        }
         let p = Data(packet) // indices à 0
         let aad = p.prefix(CryptoConstants.headerByteCount)
         let ciphertext = p.subdata(in: CryptoConstants.headerByteCount..<(p.count - CryptoConstants.tagByteCount))
