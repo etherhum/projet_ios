@@ -12,37 +12,78 @@ final class AppState: ObservableObject {
     /// Alerte affichée quand le micro est refusé.
     @Published var showMicrophoneDeniedAlert = false
 
+    /// Alias local affiché (change à chaque rotation).
+    @Published private(set) var myAlias: String
+
     let discovery: PeerDiscovering
     let microphone: MicrophonePermission
+    private let rotationTimer: RotationTimer
+    private let rotationInterval: TimeInterval
+    /// Rotation échue pendant un appel : effectuée à la fin de l'appel (M2-03).
+    private(set) var rotationPending = false
+    private var discovering = false
 
-    init(discovery: PeerDiscovering, microphone: MicrophonePermission) {
+    init(discovery: PeerDiscovering, microphone: MicrophonePermission,
+         rotationTimer: RotationTimer? = nil,
+         rotationInterval: TimeInterval = RotationPolicy.interval) {
         self.discovery = discovery
         self.microphone = microphone
+        self.rotationTimer = rotationTimer ?? SystemRotationTimer()
+        self.rotationInterval = rotationInterval
+        self.myAlias = discovery.localPseudonym.alias
         discovery.onEvent = { [weak self] event in
             guard let self else { return }
             switch event {
-            case .found(let peer): self.nearby.add(peer)
+            case .found(let peer):
+                // Défense en profondeur : jamais soi-même dans la liste.
+                guard peer.id != self.discovery.localPseudonym.value else { return }
+                self.nearby.add(peer)
             case .lost(let id): self.nearby.remove(id: id)
             }
         }
     }
 
-    var myAlias: String { discovery.localPseudonym.alias }
+    /// Hook M3-05 : un appel est en cours (aucune rotation pendant un appel).
+    var isInCall: Bool { activeCall != nil }
 
     /// Action explicite de l'utilisateur : déclenche la popup iOS « Réseau local » au premier usage.
     func userRequestedSearch() {
         searchRequested = true
-        discovery.start()
+        startDiscovery()
     }
 
     /// Reprise au premier plan : seulement si l'utilisateur avait déjà lancé la recherche.
     func resumeDiscoveryIfRequested() {
-        if searchRequested { discovery.start() }
+        if searchRequested { startDiscovery() }
     }
 
     func stopDiscovery() {
+        rotationTimer.stop()
+        discovering = false
         discovery.stop()
         nearby.removeAll()
+    }
+
+    private func startDiscovery() {
+        guard !discovering else { return }
+        discovering = true
+        discovery.start() // nouveau pseudonyme à chaque démarrage (retour au premier plan inclus)
+        myAlias = discovery.localPseudonym.alias
+        rotationTimer.start(interval: rotationInterval) { [weak self] in self?.rotationTick() }
+    }
+
+    /// Échéance de la minuterie : rotation, sauf pendant un appel (reportée à la fin de l'appel).
+    func rotationTick() {
+        guard discovering else { return }
+        if isInCall { rotationPending = true } else { rotatePseudonym() }
+    }
+
+    private func rotatePseudonym() {
+        rotationPending = false
+        // Les anciens pairs ont été vus par l'ancien browser : la liste repart de zéro (pas d'entrée périmée).
+        nearby.removeAll()
+        discovery.rotate()
+        myAlias = discovery.localPseudonym.alias
     }
 
     /// Lancement d'un appel : le micro est demandé ici (premier usage), jamais au lancement.
@@ -63,5 +104,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    func hangUp() { activeCall = nil }
+    /// Fin d'appel : nouveau pseudonyme (M2-03), que la rotation ait été reportée ou non.
+    func hangUp() {
+        activeCall = nil
+        if discovering { rotatePseudonym() }
+    }
 }
