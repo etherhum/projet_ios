@@ -25,8 +25,10 @@ PATTERNS=(
 )
 
 # Liste blanche explicite : "chemin/relatif/au/dossier.swift:motif" (usage légitime justifié).
-# Vide à ce jour.
+# - Services/AppLog.swift : seule façade de journalisation (M3-12), construit les `Logger` par catégorie.
+# Seuls les fichiers *.swift du dossier analysé (Proxima/) sont examinés : docs/ n'est pas scanné.
 ALLOWLIST=(
+  'Services/AppLog.swift:Logger\('
 )
 
 found=0

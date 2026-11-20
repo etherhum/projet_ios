@@ -53,7 +53,7 @@ enum CallPhase: Equatable {
 /// Appelé (R) : invitation (COMMIT) → `incomingRequest` (aucune clé) → `accept()` explicite
 ///   → paire éphémère → connexion → HELLO envoyé → REVEAL reçu, engagement vérifié, dérivation → `verifying`.
 /// Refus, délai, message inattendu, déconnexion : `failed`/`ended`, toutes les clés détruites.
-/// Aucun log (ni pseudonyme, ni clé, ni code).
+/// Aucun log de donnée (ni pseudonyme, ni clé, ni code) : seuls des événements statiques `AppLog`.
 @MainActor
 final class CallSession {
     /// Délai de chaque étape (demande, poignée de main, vérification) : 30 s (M2-05, M2-06).
@@ -315,6 +315,7 @@ final class CallSession {
         do {
             opened = try crypter.open(data)
         } catch {
+            AppLog.log(error as? ReplayError == .replayedOrOutOfWindow ? .packetReplayRejected : .packetRejected)
             // Tag invalide ou paquet rejoué (M3-08) pendant la vérification : fermeture (M2-07). En appel actif : ignoré.
             if case .verifying = phase { fail(.protocolError) }
             return
