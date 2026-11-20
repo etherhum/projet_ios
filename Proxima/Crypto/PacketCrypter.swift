@@ -56,13 +56,17 @@ struct OpenedPacket: Equatable {
 
 /// Chiffre/déchiffre les paquets M2-07 avec AES-256-GCM et les clés de direction de `SessionKeys`.
 /// L'émetteur gère un compteur strictement croissant à partir de 0 (nonce jamais réutilisé).
-/// La fenêtre anti-rejeu et la fraîcheur (règles 3, 5, 6) relèvent de M3-08 : `open` ne fait
-/// que les règles 1, 2 et 4.
+/// `open` applique les règles 1 à 6 (anti-rejeu et fraîcheur via `ReplayWindow`, M3-08).
 final class PacketCrypter {
     private let keys: SessionKeys
     private(set) var nextSendCounter: UInt64 = 0
+    /// Anti-rejeu et fraîcheur de la direction de réception (M3-08).
+    private let replayWindow: ReplayWindow
 
-    init(keys: SessionKeys) { self.keys = keys }
+    init(keys: SessionKeys, replayWindow: ReplayWindow = ReplayWindow()) {
+        self.keys = keys
+        self.replayWindow = replayWindow
+    }
 
     func destroy() { keys.destroy() }
 
@@ -92,6 +96,7 @@ final class PacketCrypter {
         if header.type == .audio, packet.count <= CryptoConstants.headerByteCount + CryptoConstants.tagByteCount {
             throw CryptoError.malformedPacket
         }
+        try replayWindow.check(counter: header.counter) // règle 3, avant tout calcul
         let p = Data(packet) // indices à 0
         let aad = p.prefix(CryptoConstants.headerByteCount)
         let ciphertext = p.subdata(in: CryptoConstants.headerByteCount..<(p.count - CryptoConstants.tagByteCount))
@@ -105,6 +110,8 @@ final class PacketCrypter {
             throw CryptoError.authenticationFailed
         }
         if header.type == .control { try Self.validateControl(plaintext) }
+        // Règles 5-6 : seulement après tag valide, sinon la fenêtre n'avance pas.
+        try replayWindow.accept(counter: header.counter, timestampMs: header.timestampMs)
         return OpenedPacket(header: header, plaintext: plaintext)
     }
 

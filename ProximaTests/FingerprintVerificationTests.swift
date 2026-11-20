@@ -166,7 +166,10 @@ final class FingerprintVerificationTests: XCTestCase {
         assertNoKeys(caller, callee)
     }
 
-    func testSASOKReplayedInActivePhaseFails() throws {
+    /// M3-08 : en appel actif, le SAS_OK rejoué (mêmes octets, même compteur) est rejeté par la fenêtre
+    /// anti-rejeu avant d'atteindre `CallSession` ; il est ignoré comme tout paquet invalide en appel actif.
+    /// (Pendant la vérification, le même rejet ferme la session : voir `testReplayedSASOKFails`.)
+    func testSASOKReplayedInActivePhaseDroppedByReplayWindow() throws {
         var captured: Data?
         tI.tamper = { d in
             if HandshakeMessage.decode(d) == nil { captured = d }
@@ -177,8 +180,8 @@ final class FingerprintVerificationTests: XCTestCase {
         caller.confirmCode(); callee.confirmCode(); link.run()
         XCTAssertEqual(callee.phase, .active(code: c))
         tR.onCallEvent?(.received(try XCTUnwrap(captured)))
-        XCTAssertEqual(callee.phase, .failed(.protocolError))
-        assertNoKeys(callee)
+        XCTAssertEqual(callee.phase, .active(code: c))
+        XCTAssertTrue(callee.canExchangeAudio)
     }
 
     func testSASOKBeforeVerifyingFails() throws {

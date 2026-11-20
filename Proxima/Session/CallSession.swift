@@ -315,12 +315,12 @@ final class CallSession {
         do {
             opened = try crypter.open(data)
         } catch {
-            // Tag invalide pendant la vérification : fermeture (M2-07). En appel actif : ignoré (compteur d'erreurs M3-08).
+            // Tag invalide ou paquet rejoué (M3-08) pendant la vérification : fermeture (M2-07). En appel actif : ignoré.
             if case .verifying = phase { fail(.protocolError) }
             return
         }
         guard opened.header.type == .control, let code = opened.plaintext.first.flatMap(ControlCode.init) else {
-            return // AUDIO : M3-07 ; anti-rejeu : M3-08
+            return // AUDIO : M3-07 (rejeu déjà filtré par la fenêtre M3-08 dans `open`)
         }
         switch code {
         case .hangUp:
