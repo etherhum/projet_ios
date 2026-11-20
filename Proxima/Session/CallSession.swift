@@ -98,7 +98,11 @@ final class CallSession {
         didSet { if localCodeConfirmed != oldValue { onConfirmationChange?(localCodeConfirmed) } }
     }
     var onConfirmationChange: ((Bool) -> Void)?
-    private var remoteCodeConfirmed = false
+    /// Le pair a confirmé le code (SAS_OK authentifié reçu) ; exposé pour guider l'utilisateur (M3-06, QR).
+    private(set) var remoteCodeConfirmed = false {
+        didSet { if remoteCodeConfirmed != oldValue { onRemoteConfirmationChange?(remoteCodeConfirmed) } }
+    }
+    var onRemoteConfirmationChange: ((Bool) -> Void)?
     /// DEBUG uniquement (`-ProximaFakeFingerprint`) : empreinte affichée volontairement fausse (M3-06).
     private let fakeFingerprint: Bool
     private var deadline: DeadlineToken?

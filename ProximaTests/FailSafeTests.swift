@@ -263,3 +263,70 @@ final class FailSafeTests: XCTestCase {
         }
     }
 }
+
+/// Corrections après tests manuels : rotation de fin d'appel (M3-09) et guidage de la confirmation (M3-06).
+@MainActor
+final class PostManualTestFixesTests: XCTestCase {
+    private func makeState(_ d: FakeDiscovery, _ t: MemoryTransport) -> AppState {
+        AppState(discovery: d, microphone: FakeMicrophone(status: .granted), rotationTimer: FakeTimer(),
+                 rotationInterval: 600, callTransport: t, callScheduler: RecordingScheduler(),
+                 janitor: SecretsJanitor(observeTermination: false), audioIO: FakeAudioIO())
+    }
+
+    func testDeclinedCallDoesNotRotatePseudonym() async {
+        let (link, a, b) = MemoryTransport.pair()
+        let d = FakeDiscovery(), state = makeState(d, a)
+        let other = CallSession(transport: b, scheduler: RecordingScheduler())
+        state.userRequestedSearch()
+        let before = d.localPseudonym
+        await state.requestCall(with: NearbyPeer(pseudonym: Pseudonym(value: b.id))); link.run()
+        other.decline(); link.run()
+        XCTAssertEqual(state.callPhase, .failed(.declinedOrNoAnswer))
+        XCTAssertEqual(d.rotations, 0, "refus / blocage : pas de nouveau pseudonyme (sinon blocage contourné)")
+        XCTAssertEqual(d.localPseudonym, before)
+    }
+
+    func testOutgoingTimeoutDoesNotRotatePseudonym() async {
+        let (link, a, b) = MemoryTransport.pair()
+        _ = b
+        let d = FakeDiscovery(), sched = RecordingScheduler()
+        let state = AppState(discovery: d, microphone: FakeMicrophone(status: .granted), rotationTimer: FakeTimer(),
+                             callTransport: a, callScheduler: sched, janitor: SecretsJanitor(observeTermination: false),
+                             audioIO: FakeAudioIO())
+        state.userRequestedSearch()
+        await state.requestCall(with: NearbyPeer(pseudonym: .random())); link.run()
+        sched.fire(after: CallSession.stepTimeout)
+        XCTAssertFalse(state.isInCall)
+        XCTAssertEqual(d.rotations, 0)
+    }
+
+    func testEstablishedCallThenHangUpRotates() async {
+        let (link, a, b) = MemoryTransport.pair()
+        let d = FakeDiscovery(), state = makeState(d, a)
+        let other = CallSession(transport: b, scheduler: RecordingScheduler())
+        state.userRequestedSearch()
+        await state.requestCall(with: NearbyPeer(pseudonym: Pseudonym(value: b.id))); link.run()
+        other.accept(); link.run()
+        guard case .verifying = state.callPhase else { return XCTFail("\(state.callPhase)") }
+        state.hangUp(); link.run()
+        XCTAssertEqual(d.rotations, 1, "appel établi puis raccroché : nouveau pseudonyme (M2-03)")
+    }
+
+    func testPeerConfirmationExposedUntilLocalConfirms() async {
+        let (link, a, b) = MemoryTransport.pair()
+        let stateA = makeState(FakeDiscovery(), a), stateB = makeState(FakeDiscovery(), b)
+        await stateA.requestCall(with: NearbyPeer(pseudonym: Pseudonym(value: b.id))); link.run()
+        await stateB.acceptIncomingCall(); link.run()
+        XCTAssertFalse(stateA.codeConfirmedByPeer)
+        // B confirme (ex. QR de A scanné) : A est invité à vérifier à son tour.
+        if let qr = stateA.verificationQRPayload { stateB.submitScannedQR(qr) } else { stateB.confirmCode() }
+        link.run()
+        XCTAssertTrue(stateA.codeConfirmedByPeer)
+        XCTAssertFalse(stateA.codeConfirmedLocally)
+        guard case .verifying = stateA.callPhase else { return XCTFail("A doit encore confirmer") }
+        stateA.confirmCode(); link.run()
+        guard case .active = stateA.callPhase else { return XCTFail("\(stateA.callPhase)") }
+        stateA.hangUp(); link.run()
+        XCTAssertFalse(stateA.codeConfirmedByPeer, "réinitialisé en fin d'appel")
+    }
+}

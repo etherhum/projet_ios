@@ -14,6 +14,12 @@ final class AppState: ObservableObject {
     @Published private(set) var searchRequested = false
     /// L'utilisateur local a confirmé le code ; en attente de la confirmation du pair (M3-06).
     @Published private(set) var codeConfirmedLocally = false
+    /// Le correspondant a confirmé le code (SAS_OK reçu) alors que l'utilisateur local ne l'a pas encore fait :
+    /// l'écran lui demande de vérifier à son tour (cas typique : QR scanné par l'appelé, M3-06).
+    @Published private(set) var codeConfirmedByPeer = false
+    /// Des clés ont été établies pendant l'appel en cours (`verifying` ou `active` atteint) : seule condition
+    /// de la rotation de fin d'appel (M3-09 : un appel refusé / bloqué ne doit pas offrir un nouveau pseudonyme).
+    private var callEstablished = false
     /// Alerte affichée quand le micro est refusé.
     @Published var showMicrophoneDeniedAlert = false
 
@@ -53,6 +59,7 @@ final class AppState: ObservableObject {
         audio = AudioPipeline(io: audioIO ?? EngineAudioIO())
         call.onPhaseChange = { [weak self] phase in self?.callPhaseChanged(phase) }
         call.onConfirmationChange = { [weak self] confirmed in self?.codeConfirmedLocally = confirmed }
+        call.onRemoteConfirmationChange = { [weak self] confirmed in self?.codeConfirmedByPeer = confirmed }
         audio.sendFrame = { [weak call] frame in call?.sendAudio(frame) ?? false }
         call.onAudioPacket = { [weak audio] packet in audio?.receive(packet) }
         call.onPacketRejected = { [weak audio] in audio?.noteRejected() }
@@ -205,8 +212,19 @@ final class AppState: ObservableObject {
         if wasBusy, !phase.isBusy { janitor.callDidEnd(); AppLog.log(.secretsWiped) }
         if let id = call.peerID { callPeer = NearbyPeer(pseudonym: Pseudonym(value: id)) }
         if phase == .idle { callPeer = nil }
-        // Fin d'appel : nouveau pseudonyme (M2-03), que la rotation ait été reportée ou non.
-        if wasBusy, !phase.isBusy, discovering { rotatePseudonym() }
+        switch phase {
+        case .verifying, .active: callEstablished = true
+        default: break
+        }
+        // Fin d'appel : nouveau pseudonyme (M2-03) seulement après un appel réellement établi (clés établies),
+        // ou si une rotation périodique a été reportée pendant l'appel. Pas après refus / sans réponse /
+        // pair bloqué / délai de demande : sinon un appelant bloqué réapparaîtrait sous un nouveau pseudonyme
+        // et contournerait le blocage M3-09.
+        if wasBusy, !phase.isBusy {
+            let established = callEstablished
+            callEstablished = false
+            if discovering, established || rotationPending { rotatePseudonym() }
+        }
     }
 }
 

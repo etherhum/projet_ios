@@ -22,6 +22,8 @@ struct CallView: View {
             VerificationQRScannerSheet { appState.submitScannedQR($0) }
         }
         .onChange(of: appState.callPhase) { _, _ in showQR = false }
+        // Le pair a vérifié (ex. QR scanné) : on revient au code pour que l'utilisateur le vérifie à son tour.
+        .onChange(of: appState.codeConfirmedByPeer) { _, confirmed in if confirmed { showQR = false } }
     }
 
     @ViewBuilder private var content: some View {
@@ -52,6 +54,10 @@ struct CallView: View {
             }
             if appState.codeConfirmedLocally {
                 ProgressView("En attente de la confirmation de votre correspondant…").font(.footnote)
+            } else if appState.codeConfirmedByPeer {
+                Label("Votre correspondant a vérifié. Vérifiez à votre tour le code ci-dessous et confirmez.",
+                      systemImage: "person.fill.checkmark")
+                    .font(.callout.bold()).foregroundStyle(.blue).multilineTextAlignment(.center)
             } else {
                 Text("30 s pour vérifier. Sans réponse, l'appel est refusé ; aucun son avant la confirmation des deux côtés.")
                     .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
