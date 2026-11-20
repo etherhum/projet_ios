@@ -211,3 +211,11 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 - Appels croisés (M3-05) : départage déterministe identique des deux côtés (le plus petit pseudonyme reste l'appelant) ; l'autre annule son appel sortant (clé éphémère détruite) et reçoit un appel entrant normal (acceptation explicite). 2 tests unitaires.
 - Fantômes (M3-03) : nos propres anciens pseudonymes, restés en cache Bonjour, sont ignorés ; « tirer pour actualiser » relance la recherche ; un pair injoignable (appel refusé ou sans réponse) est retiré de la liste. 1 test unitaire. Limite : les entrées laissées par un lancement précédent de l'app disparaissent à l'expiration du cache iOS.
 - Validation manuelle sur 2 iPhones réels (17 Pro Max + 16 Pro Max) : voix dans les deux sens, micro coupé, haut-parleur, appels croisés, blocage, QR, mode empreinte fausse — validé par le développeur le 2026-11-20.
+
+## 2026-11-20 — Architecte sécurité : issues restantes (M3-13)
+
+- Demande reformulée : « Le développeur iOS a avancé et fusionne ses PR automatiquement ; plutôt que d'attendre, traiter toutes les issues restantes du rôle architecte sécurité qui peuvent l'être sans attendre l'audit ou les livrables finaux. »
+- Réalisé : revue de sécurité du code crypto déjà fusionné (M3-13, #32) dans `docs/M3-13-revue-securite-crypto.md`. Écart principal : Face ID (M2-08) non implémenté, issue ouverte.
+- Non traité : M4-05 (#39), M4-07 (#41), M5-04 (#46), qui dépendent des rapports d'audit croisé et des livrables finaux.
+- Limite : tests unitaires non exécutés (Xcode absent du poste).
+- Remarque : la fusion automatique des PR (workflow du dépôt) ne remplace pas une relecture humaine ; la revue ci-dessus en tient lieu pour la crypto.
