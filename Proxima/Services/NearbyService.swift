@@ -11,6 +11,8 @@ final class NearbyService: NSObject, PeerDiscovering, CallTransport {
     static let discoveryInfo = ["v": DiscoveryValidator.protocolVersion] // identique pour tous (M2-03)
 
     private(set) var localPseudonym = Pseudonym.random()
+    /// Appels croisés : ignore le `.notConnected` lié à notre invitation annulée (voir délégué d'invitation).
+    private var ignoreDisconnectUntilConnected = false
     var onEvent: ((DiscoveryEvent) -> Void)?
 
     /// Pseudonymes déjà utilisés pendant ce lancement (mémoire uniquement, jamais persistés) :
@@ -69,6 +71,14 @@ final class NearbyService: NSObject, PeerDiscovering, CallTransport {
         session = nil
     }
 
+    func refreshBrowsing() {
+        guard let browser else { return }
+        let keep = callPeer
+        foundPeers = foundPeers.filter { $0.value == keep }
+        browser.stopBrowsingForPeers()
+        browser.startBrowsingForPeers()
+    }
+
     func rotate() {
         stop()
         start()
@@ -93,6 +103,7 @@ final class NearbyService: NSObject, PeerDiscovering, CallTransport {
         } else {
             handler(false, nil)
             callPeer = nil
+            ignoreDisconnectUntilConnected = false
         }
     }
 
@@ -120,6 +131,7 @@ final class NearbyService: NSObject, PeerDiscovering, CallTransport {
     }
 
     func disconnect() {
+        ignoreDisconnectUntilConnected = false
         if let handler = pendingInvitation { pendingInvitation = nil; handler(false, nil) }
         if let peer = callPeer { session?.cancelConnectPeer(peer) }
         callPeer = nil
@@ -138,7 +150,9 @@ extension NearbyService: MCNearbyServiceBrowserDelegate {
     nonisolated func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
         let name = peerID.displayName
         Task { @MainActor in
-            guard browser === self.browser,
+            // Nos propres anciens pseudonymes (rotations précédentes) peuvent rester en cache Bonjour
+            // sur cet appareil : sans ce filtre, l'iPhone se verrait lui-même comme « utilisateur fantôme ».
+            guard browser === self.browser, !self.usedPseudonyms.contains(name),
                   let peer = DiscoveryValidator.peer(displayName: name, info: info, local: self.localPseudonym)
             else { return }
             if self.foundPeers.count < NearbyPeerList.maxPeers || self.foundPeers[name] != nil {
@@ -172,6 +186,25 @@ extension NearbyService: MCNearbyServiceAdvertiserDelegate {
         Task { @MainActor in
             // Jamais d'acceptation automatique. Refus immédiat si : autre advertiser (rotation),
             // invitation déjà en attente, appel en cours, ou contexte trop grand.
+            // Appels croisés : invitation du pair que l'on est déjà en train d'appeler.
+            if advertiser === self.advertiser, self.pendingInvitation == nil,
+               let outgoing = self.callPeer, outgoing.displayName == name,
+               context.count <= HandshakeMessage.maxByteCount {
+                // Départage déterministe, identique des deux côtés : le plus petit pseudonyme reste l'appelant.
+                guard self.localPseudonym.value > name else {
+                    invitationHandler(false, nil) // nous restons l'appelant : le pair basculera en appelé
+                    AppLog.log(.invitationDeclined)
+                    return
+                }
+                self.session?.cancelConnectPeer(outgoing)
+                self.pendingInvitation = invitationHandler
+                self.callPeer = peerID
+                // Le refus de notre invitation par le pair produira un `.notConnected` sans rapport :
+                // ignoré jusqu'à la connexion de l'appel retenu (délai de 30 s en filet de sécurité).
+                self.ignoreDisconnectUntilConnected = true
+                self.onCallEvent?(.crossedInvitation(from: name, context: context))
+                return
+            }
             guard advertiser === self.advertiser, self.pendingInvitation == nil, self.callPeer == nil,
                   context.count <= HandshakeMessage.maxByteCount else {
                 invitationHandler(false, nil)
@@ -191,8 +224,11 @@ extension NearbyService: MCSessionDelegate {
         Task { @MainActor in
             guard session === self.session, peerID == self.callPeer else { return }
             switch state {
-            case .connected: self.onCallEvent?(.connected)
+            case .connected:
+                self.ignoreDisconnectUntilConnected = false
+                self.onCallEvent?(.connected)
             case .notConnected:
+                if self.ignoreDisconnectUntilConnected { return }
                 self.callPeer = nil
                 self.onCallEvent?(.disconnected)
             case .connecting: break

@@ -239,6 +239,8 @@ final class CallSession {
         switch event {
         case .invitation(let from, let context):
             handleInvitation(from: from, context: context)
+        case .crossedInvitation(let from, let context):
+            handleCrossedInvitation(from: from, context: context)
         case .connected:
             if phase == .outgoingRequest {
                 phase = .handshaking
@@ -271,6 +273,23 @@ final class CallSession {
         commitment = c
         phase = .incomingRequest
         armDeadline(failure: nil) // sans réponse en 30 s : refus (défaut de réponse = refus)
+    }
+
+    /// Appels croisés (A appelle B pendant que B appelle A) : on abandonne notre appel sortant — clé
+    /// éphémère détruite, aucun secret établi — et on présente l'appel du pair comme un appel entrant
+    /// normal (acceptation explicite). Sans phase `idle` intermédiaire : pas de rotation ni d'écran de fin.
+    private func handleCrossedInvitation(from: String, context: Data) {
+        guard phase == .outgoingRequest, peerID == from else { return handleInvitation(from: from, context: context) }
+        guard Pseudonym.isValid(from), case .commit(let c)? = HandshakeMessage.decode(context) else {
+            transport.answerInvitation(accept: false)
+            transport.disconnect()
+            return finish(.failed(.protocolError))
+        }
+        teardown() // notre paire éphémère et notre délai d'appel sortant sont détruits
+        peerID = from
+        commitment = c
+        phase = .incomingRequest
+        armDeadline(failure: nil)
     }
 
     private func handleData(_ data: Data) {

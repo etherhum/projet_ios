@@ -23,6 +23,8 @@ final class MemoryTransport: CallTransport {
     private(set) var answers: [Bool] = []
     /// Permet de modifier / remplacer les données envoyées (attaquant actif).
     var tamper: ((Data) -> Data)?
+    /// Simule la règle d'appels croisés de `NearbyService` : notre invitation arrive chez le pair qui nous appelait.
+    var deliverAsCrossed = false
 
     init(link: MemoryLink) { self.link = link }
 
@@ -37,7 +39,8 @@ final class MemoryTransport: CallTransport {
         link.queue.append { [weak self] in
             guard let self, let other = self.other, peerID == other.id else { return }
             other.pending = true
-            other.onCallEvent?(.invitation(from: self.id, context: context))
+            other.onCallEvent?(self.deliverAsCrossed ? .crossedInvitation(from: self.id, context: context)
+                                                     : .invitation(from: self.id, context: context))
         }
     }
 
@@ -324,5 +327,32 @@ final class CallSessionTests: XCTestCase {
         XCTAssertEqual(d.rotations, 1)
         XCTAssertEqual(other.phase, .ended(.remoteHangUp))
         XCTAssertFalse(state.call.holdsKeyMaterial)
+    }
+
+    // MARK: Appels croisés (A appelle B pendant que B appelle A)
+
+    func testCrossedCallsResolveToSingleIncomingCall() {
+        callee.call(peerID: tI.id)      // R appelle I…
+        caller.call(peerID: tR.id)      // …pendant que I appelle R
+        XCTAssertEqual(link.queue.count, 2)
+        link.queue.removeFirst()        // l'invitation de R est refusée par le transport de I (I reste l'appelant)
+        tI.deliverAsCrossed = true      // celle de I arrive chez R comme invitation croisée
+        link.run()
+        XCTAssertEqual(caller.phase, .outgoingRequest)
+        XCTAssertEqual(callee.phase, .incomingRequest, "l'appel croisé devient un appel entrant, pas un refus")
+        XCTAssertEqual(callee.peerID, tI.id)
+        XCTAssertFalse(callee.holdsKeyMaterial, "clé éphémère de l'appel sortant abandonné détruite")
+        callee.accept()
+        link.run()
+        guard case .verifying(let code) = caller.phase else { return XCTFail("appelant : \(caller.phase)") }
+        XCTAssertEqual(callee.phase, .verifying(code: code))
+    }
+
+    func testCrossedInvitationFromAnotherPeerIsDeclined() {
+        caller.call(peerID: tR.id)
+        let commit = HandshakeMessage.commit(commitment: Data(repeating: 7, count: 32)).bytes
+        tI.onCallEvent?(.crossedInvitation(from: Pseudonym.random().value, context: commit))
+        XCTAssertEqual(caller.phase, .outgoingRequest, "un autre pair ne peut pas interrompre notre appel")
+        XCTAssertEqual(tI.answers, [false])
     }
 }

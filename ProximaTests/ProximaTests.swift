@@ -52,6 +52,8 @@ final class FakeDiscovery: PeerDiscovering {
     private(set) var blocked: Set<String> = []
     func block(peerID: String) { blocked.insert(peerID) }
     func isBlocked(peerID: String) -> Bool { blocked.contains(peerID) }
+    var refreshes = 0
+    func refreshBrowsing() { refreshes += 1 }
 }
 
 @MainActor
@@ -115,6 +117,16 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.nearby.peers, [q])
         fake.onEvent?(.found(p))
         XCTAssertEqual(state.nearby.peers, [q])
+    }
+
+    /// Fantômes : « tirer pour actualiser » vide la liste et relance la recherche (seuls les pairs présents reviennent).
+    func testRefreshClearsListAndRestartsBrowsing() {
+        let (state, fake, _) = make()
+        state.userRequestedSearch()
+        fake.onEvent?(.found(NearbyPeer(pseudonym: .random())))
+        state.refreshNearby()
+        XCTAssertTrue(state.nearby.peers.isEmpty)
+        XCTAssertEqual(fake.refreshes, 1)
     }
 
     func testMicrophoneDeniedOpensNoCall() async {

@@ -199,9 +199,20 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// « Tirer pour actualiser » : vide la liste et relance la recherche (fantômes éliminés).
+    func refreshNearby() {
+        guard discovering, !isInCall else { return }
+        nearby.removeAll()
+        discovery.refreshBrowsing()
+    }
+
     private func callPhaseChanged(_ phase: CallPhase) {
         let wasBusy = callPhase.isBusy
+        let wasOutgoing = callPhase == .outgoingRequest
         callPhase = phase
+        // Pair injoignable (ancien pseudonyme encore en cache, appareil parti) : retiré de la liste.
+        // Un pair réellement présent qui a refusé réapparaît à la prochaine actualisation ou rotation.
+        if wasOutgoing, phase == .failed(.declinedOrNoAnswer), let id = call.peerID { nearby.remove(id: id) }
         if let event = AppLog.Event.forCallPhase(phase) { AppLog.log(event) } // catégorie seulement, jamais le code ni le pair
         // M3-11 : la session et la chaîne audio sont enregistrées auprès du janitor dès le début d'un appel ;
         // toute fin d'appel (local, distant, refus, échec, perte du pair) passe ici → `callDidEnd()`

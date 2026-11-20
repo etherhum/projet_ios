@@ -20,7 +20,7 @@ final class EngineAudioIO: AudioIO {
     enum IOError: Error { case unavailable }
 
     /// Au-delà, les trames reçues sont abandonnées (latence bornée à ~200 ms côté lecture).
-    static let maxQueuedPlayback = 10
+    static let maxQueuedPlayback = 15
 
     let session = AudioSessionController()
     private var engine: AVAudioEngine?
@@ -66,20 +66,50 @@ final class EngineAudioIO: AudioIO {
         }
         engine.prepare()
         try engine.start()
-        player.play()
+        queuedLock.lock(); queued = 0; prebuffering = true; queuedLock.unlock() // lecture lancée par `play` après la réserve
         self.engine = engine
         self.player = player
         configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-            self?.restart()
+            self?.configurationChanged()
+        }
+    }
+
+    /// Changement de configuration signalé par le système. L'activation du traitement voix (annulation
+    /// d'écho) en émet un juste après le démarrage et **arrête le moteur** (vérifié sur iPhone) : on
+    /// relance le même graphe ; reconstruction complète seulement si la relance échoue.
+    private func configurationChanged() {
+        guard let engine, !engine.isRunning else { return }
+        // Les trames planifiées avant l'arrêt ne seront jamais signalées comme jouées : sans remise à
+        // zéro, le compteur resterait au plafond et toute la lecture serait ignorée (silence côté appelé).
+        player?.stop()
+        queuedLock.lock(); queued = 0; prebuffering = true; queuedLock.unlock()
+        do {
+            engine.prepare()
+            try engine.start()
+        } catch {
+            restart()
         }
     }
 
     /// Reconstruit le graphe (changement de route, fin d'interruption) sans changer de session audio.
-    private func restart() {
-        guard engine != nil else { return }
+    /// Le matériel peut ne pas être prêt immédiatement après la libération de l'ancien moteur :
+    /// quelques tentatives espacées avant de conclure à une panne (M3-10 : alors fermeture de l'appel).
+    private func restart(attempt: Int = 0) {
+        guard engine != nil || attempt > 0 else { return }
         tearDownEngine()
-        do { try build() } catch { tearDownEngine(); onFailure?() } // jamais d'appel actif sans audio : fermeture
+        do {
+            try build()
+        } catch {
+            tearDownEngine()
+            guard attempt < Self.maxRestartAttempts, onCapture != nil else { onFailure?(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self, self.onCapture != nil, self.engine == nil else { return }
+                self.restart(attempt: attempt + 1)
+            }
+        }
     }
+
+    private static let maxRestartAttempts = 3
 
     private func convertAndDeliver(_ buffer: AVAudioPCMBuffer) {
         guard let converter, let onCapture else { return }
@@ -102,13 +132,21 @@ final class EngineAudioIO: AudioIO {
         guard let player, engine?.isRunning == true else { return }
         queuedLock.lock()
         guard queued < Self.maxQueuedPlayback else { queuedLock.unlock(); return }
+        if queued == 0, player.isPlaying { player.pause(); prebuffering = true } // file vide : on reconstitue une réserve
         queued += 1
+        let startNow = prebuffering && queued >= Self.prebufferFrames
+        if startNow { prebuffering = false }
         queuedLock.unlock()
         player.scheduleBuffer(buffer) { [weak self] in
             guard let self else { return }
             self.queuedLock.lock(); self.queued = max(0, self.queued - 1); self.queuedLock.unlock()
         }
+        if startNow { player.play() }
     }
+
+    /// Réserve avant lecture (3 × 20 ms) : évite qu'un paquet en retard vide la file et coupe le son.
+    static let prebufferFrames = 3
+    private var prebuffering = true
 
     func setSpeaker(_ on: Bool) { session.setSpeaker(on) }
 

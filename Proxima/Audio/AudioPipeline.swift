@@ -6,6 +6,8 @@ struct AudioStats: Equatable {
     var sent = 0
     var received = 0
     var rejected = 0
+    /// Trames jamais arrivées à temps (remplacées par du silence) : mesure les pertes réseau.
+    var lost = 0
 }
 
 /// Découpe le PCM capturé en trames exactes de `framesPerPacket` puis les encode. Utilisé sur la file de capture
@@ -78,7 +80,8 @@ final class AudioPipeline: ObservableObject {
     private let io: AudioIO
     private var chain: CaptureChain?
     private var decoder: VoiceDecoder?
-    private var jitter = JitterBuffer()
+    /// 5 trames ≈ 80 ms de latence ajoutée : absorbe la gigue de Multipeer (Wi-Fi pair-à-pair).
+    private var jitter = JitterBuffer(depth: 5, capacity: 16)
     /// Incrémenté à chaque arrêt : les trames encodées d'un appel précédent ne sont jamais envoyées.
     private var generation = 0
 
@@ -172,6 +175,7 @@ final class AudioPipeline: ObservableObject {
                     guard isRunning else { return } // la politique de rejets a pu fermer l'appel
                 }
             case .lost:
+                stats.lost += 1
                 if let s = decoder.silence() { io.play(s) }
             }
         }
