@@ -7,3 +7,5 @@
 - Demande : « Occupe toi de l'issue 1 du projet (https://github.com/etherhum/projet_ios/issues/1) »
 - Périmètre : dépôt Git existant, protection de `main`, PR obligatoire avec une approbation d’un autre membre et template de PR (relu / testé / sans secret / prompt journalisé).
 - Choix : règles appliquées aussi aux administrateurs, approbations invalidées par les nouveaux commits, pushs forcés et suppression de `main` interdits.
+- Vérification : tentative réelle de fusion de la [PR #49](https://github.com/etherhum/projet_ios/pull/49), sans revue, refusée par GitHub avec HTTP `405` : « At least 1 approving review is required by reviewers with write access. »
+- État : protection active sur `main` ; template proposé dans la PR #49. Le seul collaborateur est actuellement l’auteur : ajouter un second membre avec droit d’écriture pour obtenir l’approbation et fusionner sans contourner la règle.
