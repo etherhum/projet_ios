@@ -104,7 +104,7 @@ final class AppStateTests: XCTestCase {
     func testMicrophoneDeniedOpensNoCall() async {
         let (state, _, mic) = make(FakeMicrophone(answer: false))
         await state.requestCall(with: NearbyPeer(pseudonym: .random()))
-        XCTAssertNil(state.activeCall)
+        XCTAssertEqual(state.callPhase, .idle)
         XCTAssertTrue(state.showMicrophoneDeniedAlert)
         XCTAssertEqual(mic.requestCount, 1)
     }
@@ -112,7 +112,7 @@ final class AppStateTests: XCTestCase {
     func testMicrophoneAlreadyDeniedIsNotAskedAgain() async {
         let (state, _, mic) = make(FakeMicrophone(status: .denied))
         await state.requestCall(with: NearbyPeer(pseudonym: .random()))
-        XCTAssertNil(state.activeCall)
+        XCTAssertEqual(state.callPhase, .idle)
         XCTAssertTrue(state.showMicrophoneDeniedAlert)
         XCTAssertEqual(mic.requestCount, 0)
     }
@@ -124,14 +124,18 @@ final class AppStateTests: XCTestCase {
         fake.onEvent?(.found(p))
         XCTAssertEqual(state.nearby.peers, [p])
         await state.requestCall(with: p)
-        XCTAssertEqual(state.activeCall, p)
+        XCTAssertEqual(state.callPeer, p)
+        XCTAssertEqual(state.callPhase, .outgoingRequest)
         XCTAssertFalse(state.showMicrophoneDeniedAlert)
         XCTAssertEqual(mic.requestCount, 1)
         state.hangUp()
         await state.requestCall(with: p) // déjà accordé : pas de nouvelle demande
         XCTAssertEqual(mic.requestCount, 1)
         state.hangUp()
-        XCTAssertNil(state.activeCall)
+        XCTAssertEqual(state.callPhase, .ended(.localHangUp))
+        state.dismissCall()
+        XCTAssertEqual(state.callPhase, .idle)
+        XCTAssertNil(state.callPeer)
         fake.onEvent?(.lost(id: p.id))
         XCTAssertTrue(state.nearby.peers.isEmpty)
     }
