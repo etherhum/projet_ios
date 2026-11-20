@@ -16,3 +16,10 @@ Chaque demande utilisateur est consignée dans `JOURNAL_LOG.md` avec une formula
 
 - Demande reformulée : « Consigner chaque demande dans `JOURNAL_LOG.md` en développant sa formulation pour rendre l’objectif et le contexte explicites, plutôt que de conserver une instruction trop succincte comme “faire l’issue 1”. Mettre à jour la journalisation de la demande précédente et de cette précision, puis traiter la validation de l’issue #1. »
 - Mise en œuvre : migration du journal vers `JOURNAL_LOG.md`, reformulation de la demande liée à l’issue #1 et mise à jour du template de PR. La convention est également inscrite dans `AGENTS.md` pour les prochaines interventions.
+
+## 2026-11-20 — Approbation, fusion et clôture demandées
+
+- Demande reformulée : « Finaliser le traitement de l’issue #1 de bout en bout : approuver la PR #49, la fusionner dans `main`, puis clôturer l’issue correspondante, en conservant la journalisation de cette demande. »
+- Tentative d’approbation : `gh pr review 49 --approve` refusé par GitHub avec « Review Can not approve your own pull request ». Le compte disponible, `etherhum`, est l’auteur de la PR.
+- Tentative de fusion : `PUT /repos/etherhum/projet_ios/pulls/49/merge` sur le commit `29ed85c`, refusé avec HTTP `405` : « At least 1 approving review is required by reviewers with write access. »
+- Blocage : un autre membre avec droit d’écriture doit approuver la PR. La fusion n’a pas eu lieu et l’issue reste ouverte ; `Closes #1` assurera sa clôture lors de la fusion.
